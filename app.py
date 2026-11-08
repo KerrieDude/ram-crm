@@ -17,6 +17,7 @@ from labor_ref import (CREW_HOURS, HOME_SIZES, CREW_SIZES, RENT_A_CRATE, RENT_A_
 from ikea_assembly import IKEA_ITEMS, BRANDS as IKEA_BRANDS, label as ikea_label
 from ocr import image_to_text
 from vision import identify_items, api_key_configured
+from photo_storage import save_photo, save_text
 import base64
 
 st.set_page_config(
@@ -43,12 +44,27 @@ def get_rates(conn):
     return {r["rate_key"]: float(r["rate_value"]) for r in rows}
 
 
-(tab_dashboard, tab_calendar, tab_clients, tab_rolodex, tab_dates, tab_jobs, tab_move_quote,
- tab_hunni_quote, tab_painting, tab_carpentry, tab_landscaping, tab_labor, tab_notes,
- tab_sell, tab_settings) = st.tabs(
+def photo_input(key_prefix, label="Take a photo"):
+    """Camera only turns on (and asks for permission) after the user clicks a button —
+    it never auto-fires just from the tab being open."""
+    show_key = f"{key_prefix}_show_camera"
+    if show_key not in st.session_state:
+        st.session_state[show_key] = False
+    if not st.session_state[show_key]:
+        if st.button(f"📷 {label}", key=f"{key_prefix}_cam_btn"):
+            st.session_state[show_key] = True
+            st.rerun()
+    photo = None
+    if st.session_state[show_key]:
+        photo = st.camera_input("Camera", key=f"{key_prefix}_camera", label_visibility="collapsed")
+    uploaded = st.file_uploader("...or upload a photo instead", type=["jpg", "jpeg", "png"], key=f"{key_prefix}_upload")
+    return photo or uploaded
+
+
+(tab_dashboard, tab_calendar, tab_clients, tab_rolodex, tab_dates, tab_jobs, tab_quotes,
+ tab_labor, tab_notes, tab_sell, tab_settings) = st.tabs(
     ["Dashboard", "Calendar", "Clients", "Rolodex", "Date Book", "Daily Run",
-     "Move Quote", "Hunni-Do Quote", "Painting Quote", "Carpentry Quote",
-     "Landscaping Quote", "Labor & Expenses", "Notes & Photos", "Sell With Us", "Settings"]
+     "Quotes", "Labor & Expenses", "Notes & Photos", "Sell With Us", "Settings"]
 )
 
 
@@ -253,273 +269,284 @@ with tab_jobs:
     st.divider()
     table_page("Daily Run Log", "jobs", ["job1", "job2", "crew1", "date"])
 
-with tab_move_quote:
-    st.subheader("Moving Quote — Inventory-Driven Estimate")
-    rates = get_rates(conn)
-    st.caption(
-        "Pick items from the real RAM inventory list to get cubic footage and weight, "
-        "which drives the crew-hours estimate below. Rates come from Settings → Rates."
-    )
-
-    mq_client = st.text_input("Client name", key="mq_client")
-
-    st.markdown("**1. Inventory**")
-    total_cuft = 0.0
-    item_counts = {}
-    with st.expander("Select items by room", expanded=False):
-        for room, items in FURNITURE.items():
-            st.markdown(f"**{room}**")
-            cols = st.columns(3)
-            for i, (item, cuft) in enumerate(items.items()):
-                with cols[i % 3]:
-                    qty = st.number_input(f"{item} ({cuft} cu ft)", min_value=0, value=0, step=1,
-                                           key=f"mq_item_{room}_{item}")
-                    if qty:
-                        item_counts[f"{room}: {item}"] = qty
-                        total_cuft += qty * cuft
-
-    total_weight = total_cuft * WEIGHT_FACTOR_LBS_PER_CUFT
-    c1, c2 = st.columns(2)
-    c1.metric("Total cubic feet", f"{total_cuft:,.1f}")
-    c2.metric("Estimated weight (lbs)", f"{total_weight:,.0f}")
-
-    st.markdown("**2. Access & logistics**")
-    with st.form("move_quote"):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            crew_size = st.number_input("Crew size", min_value=1, value=3)
-            truck = st.selectbox("Truck", ["Penske", "U-Haul"])
-            if truck in RENTAL_BRANDS and os.path.exists(RENTAL_BRANDS[truck]):
-                st.image(RENTAL_BRANDS[truck], width=100)
-        with c2:
-            stairs = st.number_input("Stairs (flights)", min_value=0, value=0)
-            elevator = st.checkbox("Elevator at origin or destination")
-        with c3:
-            drive_time_hrs = st.number_input("One-way drive time (hrs)", min_value=0.0, value=0.3, step=0.1)
-            miles = st.number_input("Round-trip miles", min_value=0.0, value=10.0)
-        manual_override = st.number_input(
-            "Override estimated hours (0 = auto-calculate from inventory)", min_value=0.0, value=0.0, step=0.5
-        )
-        submitted = st.form_submit_button("Calculate quote")
-
-    if submitted:
-        auto_hours = (
-            rates["base_access_hours"]
-            + stairs * 0.25 + (0.5 if elevator else 0)
-            + drive_time_hrs * 2
-            + (total_cuft / max(crew_size, 1) / rates["cuft_per_mover_hour"] if rates["cuft_per_mover_hour"] else 0)
-        )
-        hours = manual_override if manual_override > 0 else round(auto_hours, 2)
-
-        crew_cost = rates["crew_rate"] * crew_size * hours
-        day_rate = rates["day_rate_penske"] if truck == "Penske" else rates["day_rate_uhaul"]
-        mile_rate = rates["mile_rate_penske"] if truck == "Penske" else rates["mile_rate_uhaul"]
-        free_miles = rates.get("free_miles_uhaul", 0) if truck == "U-Haul" else 0
-        billable_miles = max(0, miles - free_miles)
-        truck_cost = day_rate + billable_miles * mile_rate
-        fees = (rates["fuel_surcharge"] + rates["environmental_fee"]
-                + rates["vehicle_licensing_fee"] + rates["liability_insurance"])
-        subtotal = crew_cost + rates["management"] + truck_cost + fees
-        total = subtotal * (1 + rates["tax"])
-
-        st.metric("Estimated total", f"${total:,.2f}")
-        st.write(f"Estimated hours: {hours:.2f} (auto: {auto_hours:.2f}) · "
-                 f"Crew: ${crew_cost:,.2f} · Management: ${rates['management']:,.2f} · "
-                 f"Truck ({truck}): ${truck_cost:,.2f} · Fees: ${fees:,.2f} · Tax: {rates['tax']*100:.2f}%")
-        if item_counts:
-            st.caption("Inventory: " + "; ".join(f"{k} ×{v}" for k, v in item_counts.items()))
-
-        conn.execute(
-            "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
-            (str(uuid.uuid4())[:8], "move", mq_client, datetime.utcnow().isoformat(),
-             f"{truck}, crew {crew_size}, {hours:.2f}h, {miles}mi, {total_cuft:.0f}cuft", f"{total:.2f}"),
-        )
-        conn.commit()
-        st.success("Quote saved.")
-
+with tab_quotes:
+    st.subheader("Quotes")
+    quote_pick = st.pills("Quote type", ["Move", "Hunni-Do", "Painting", "Carpentry", "Landscaping"],
+                          default="Move", key="quote_pick")
     st.divider()
-    st.markdown("**Packing materials recommendation**")
-    st.caption("From RAM's real packing calculator (by home size, persons, and packing tier).")
-    pc1, pc2, pc3 = st.columns(3)
-    with pc1:
-        pm_bedrooms = st.selectbox("Bedrooms", BEDROOM_OPTIONS, index=2)
-    with pc2:
-        pm_persons = st.selectbox("Persons (13+ age)", PERSON_OPTIONS, index=1)
-    with pc3:
-        pm_tier = st.selectbox("Packing tier", TIERS, index=4)
-    pm = packing_lookup(pm_bedrooms, pm_persons, pm_tier)
-    if pm:
-        st.dataframe(
-            pd.DataFrame([{
-                "Medium Boxes": pm["medium_boxes"], "Large Boxes": pm["large_boxes"],
-                "X-Boxes": pm["x_boxes"], "Picture Boxes": pm["picture_boxes"],
-                "Kitchen/Book Boxes": pm["kitchen_book_boxes"], "Wardrobe Boxes": pm["wardrobe_boxes"],
-            }]),
-            use_container_width=True, hide_index=True,
+
+    if quote_pick == "Move":
+        st.subheader("Moving Quote — Inventory-Driven Estimate")
+        rates = get_rates(conn)
+        st.caption(
+            "Pick items from the real RAM inventory list to get cubic footage and weight, "
+            "which drives the crew-hours estimate below. Rates come from Settings → Rates."
         )
-    else:
-        st.caption("No match for that combination.")
 
-    st.divider()
-    table_page("Saved Move Quotes", "quotes", ["client_name", "kind", "details"], key="move_quotes")
+        mq_client = st.text_input("Client name", key="mq_client")
 
-with tab_hunni_quote:
-    st.subheader("Hunni-Do / Cleanout Quote — Auto Estimate")
-    rates = get_rates(conn)
+        st.markdown("**1. Inventory**")
+        total_cuft = 0.0
+        item_counts = {}
+        with st.expander("Select items by room", expanded=False):
+            for room, items in FURNITURE.items():
+                st.markdown(f"**{room}**")
+                cols = st.columns(3)
+                for i, (item, cuft) in enumerate(items.items()):
+                    with cols[i % 3]:
+                        qty = st.number_input(f"{item} ({cuft} cu ft)", min_value=0, value=0, step=1,
+                                               key=f"mq_item_{room}_{item}")
+                        if qty:
+                            item_counts[f"{room}: {item}"] = qty
+                            total_cuft += qty * cuft
 
-    st.markdown("**IKEA / furniture assembly builder**")
-    st.caption("Pick items to assemble — this fills in the suggested hours and crew size below.")
-    brand_filter = st.multiselect("Filter by brand", IKEA_BRANDS)
-    items_to_show = [i for i in IKEA_ITEMS if not brand_filter or i["brand"] in brand_filter]
-    picked = st.multiselect(
-        "Items to assemble",
-        options=[ikea_label(i) for i in items_to_show],
-        key="hq_ikea_picked",
-    )
-    picked_items = [i for i in items_to_show if ikea_label(i) in picked]
-    suggested_hours = round(sum(i["hours"] for i in picked_items), 2)
-    suggested_crew = max((i["crew"] for i in picked_items), default=1)
-    if picked_items:
-        st.write(f"Suggested: **{suggested_hours} hours**, crew of **{suggested_crew}** "
-                 f"(based on {len(picked_items)} item(s) — assumes sequential assembly by one crew).")
-
-    with st.form("hunni_quote"):
+        total_weight = total_cuft * WEIGHT_FACTOR_LBS_PER_CUFT
         c1, c2 = st.columns(2)
-        with c1:
-            hq_client = st.text_input("Client name", key="hq_client")
-            crew_size = st.number_input("Crew size", min_value=1, value=suggested_crew or 2, key="hq_crew")
-            hours = st.number_input(
-                "Estimated hours", min_value=0.5,
-                value=suggested_hours if suggested_hours > 0 else 3.0, step=0.5, key="hq_hours",
+        c1.metric("Total cubic feet", f"{total_cuft:,.1f}")
+        c2.metric("Estimated weight (lbs)", f"{total_weight:,.0f}")
+
+        st.markdown("**2. Access & logistics**")
+        with st.form("move_quote"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                crew_size = st.number_input("Crew size", min_value=1, value=3)
+                truck = st.selectbox("Truck", ["Penske", "U-Haul"])
+                if truck in RENTAL_BRANDS and os.path.exists(RENTAL_BRANDS[truck]):
+                    st.image(RENTAL_BRANDS[truck], width=100)
+            with c2:
+                stairs = st.number_input("Stairs (flights)", min_value=0, value=0)
+                elevator = st.checkbox("Elevator at origin or destination")
+            with c3:
+                drive_time_hrs = st.number_input("One-way drive time (hrs)", min_value=0.0, value=0.3, step=0.1)
+                miles = st.number_input("Round-trip miles", min_value=0.0, value=10.0)
+            manual_override = st.number_input(
+                "Override estimated hours (0 = auto-calculate from inventory)", min_value=0.0, value=0.0, step=0.5
             )
-        with c2:
-            disposal = st.number_input("Disposal / dump fee ($)", min_value=0.0, value=50.0)
-            miles = st.number_input("Round-trip miles", min_value=0.0, value=10.0, key="hq_miles")
-        submitted = st.form_submit_button("Calculate quote")
+            submitted = st.form_submit_button("Calculate quote")
 
-    if submitted:
-        crew_cost = rates["crew_rate"] * crew_size * hours
-        mileage_cost = miles * rates["mile_rate_penske"]
-        subtotal = crew_cost + disposal + mileage_cost + rates["fuel_surcharge"] + rates["environmental_fee"]
-        total = subtotal * (1 + rates["tax"])
+        if submitted:
+            auto_hours = (
+                rates["base_access_hours"]
+                + stairs * 0.25 + (0.5 if elevator else 0)
+                + drive_time_hrs * 2
+                + (total_cuft / max(crew_size, 1) / rates["cuft_per_mover_hour"] if rates["cuft_per_mover_hour"] else 0)
+            )
+            hours = manual_override if manual_override > 0 else round(auto_hours, 2)
 
-        st.metric("Estimated total", f"${total:,.2f}")
-        st.write(f"Crew: ${crew_cost:,.2f} · Disposal: ${disposal:,.2f} · "
-                 f"Mileage: ${mileage_cost:,.2f} · Tax: {rates['tax']*100:.2f}%")
+            crew_cost = rates["crew_rate"] * crew_size * hours
+            day_rate = rates["day_rate_penske"] if truck == "Penske" else rates["day_rate_uhaul"]
+            mile_rate = rates["mile_rate_penske"] if truck == "Penske" else rates["mile_rate_uhaul"]
+            free_miles = rates.get("free_miles_uhaul", 0) if truck == "U-Haul" else 0
+            billable_miles = max(0, miles - free_miles)
+            truck_cost = day_rate + billable_miles * mile_rate
+            fees = (rates["fuel_surcharge"] + rates["environmental_fee"]
+                    + rates["vehicle_licensing_fee"] + rates["liability_insurance"])
+            subtotal = crew_cost + rates["management"] + truck_cost + fees
+            total = subtotal * (1 + rates["tax"])
 
-        assembly_note = f", assembly: {', '.join(picked)}" if picked else ""
-        conn.execute(
-            "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
-            (str(uuid.uuid4())[:8], "hunni-do", hq_client, datetime.utcnow().isoformat(),
-             f"crew {crew_size}, {hours}h, disposal ${disposal}, {miles}mi{assembly_note}", f"{total:.2f}"),
+            st.metric("Estimated total", f"${total:,.2f}")
+            st.write(f"Estimated hours: {hours:.2f} (auto: {auto_hours:.2f}) · "
+                     f"Crew: ${crew_cost:,.2f} · Management: ${rates['management']:,.2f} · "
+                     f"Truck ({truck}): ${truck_cost:,.2f} · Fees: ${fees:,.2f} · Tax: {rates['tax']*100:.2f}%")
+            if item_counts:
+                st.caption("Inventory: " + "; ".join(f"{k} ×{v}" for k, v in item_counts.items()))
+
+            conn.execute(
+                "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
+                (str(uuid.uuid4())[:8], "move", mq_client, datetime.utcnow().isoformat(),
+                 f"{truck}, crew {crew_size}, {hours:.2f}h, {miles}mi, {total_cuft:.0f}cuft", f"{total:.2f}"),
+            )
+            conn.commit()
+            st.success("Quote saved.")
+
+        st.divider()
+        st.markdown("**Packing materials recommendation**")
+        st.caption("From RAM's real packing calculator (by home size, persons, and packing tier).")
+        pc1, pc2, pc3 = st.columns(3)
+        with pc1:
+            pm_bedrooms = st.selectbox("Bedrooms", BEDROOM_OPTIONS, index=2)
+        with pc2:
+            pm_persons = st.selectbox("Persons (13+ age)", PERSON_OPTIONS, index=1)
+        with pc3:
+            pm_tier = st.selectbox("Packing tier", TIERS, index=4)
+        pm = packing_lookup(pm_bedrooms, pm_persons, pm_tier)
+        if pm:
+            st.dataframe(
+                pd.DataFrame([{
+                    "Medium Boxes": pm["medium_boxes"], "Large Boxes": pm["large_boxes"],
+                    "X-Boxes": pm["x_boxes"], "Picture Boxes": pm["picture_boxes"],
+                    "Kitchen/Book Boxes": pm["kitchen_book_boxes"], "Wardrobe Boxes": pm["wardrobe_boxes"],
+                }]),
+                use_container_width=True, hide_index=True,
+            )
+        else:
+            st.caption("No match for that combination.")
+
+        st.divider()
+        table_page("Saved Move Quotes", "quotes", ["client_name", "kind", "details"], key="move_quotes")
+
+
+    if quote_pick == "Hunni-Do":
+        st.subheader("Hunni-Do / Cleanout Quote — Auto Estimate")
+        rates = get_rates(conn)
+
+        st.markdown("**IKEA / furniture assembly builder**")
+        st.caption("Pick items to assemble — this fills in the suggested hours and crew size below.")
+        brand_filter = st.multiselect("Filter by brand", IKEA_BRANDS)
+        items_to_show = [i for i in IKEA_ITEMS if not brand_filter or i["brand"] in brand_filter]
+        picked = st.multiselect(
+            "Items to assemble",
+            options=[ikea_label(i) for i in items_to_show],
+            key="hq_ikea_picked",
         )
-        conn.commit()
-        st.success("Quote saved.")
+        picked_items = [i for i in items_to_show if ikea_label(i) in picked]
+        suggested_hours = round(sum(i["hours"] for i in picked_items), 2)
+        suggested_crew = max((i["crew"] for i in picked_items), default=1)
+        if picked_items:
+            st.write(f"Suggested: **{suggested_hours} hours**, crew of **{suggested_crew}** "
+                     f"(based on {len(picked_items)} item(s) — assumes sequential assembly by one crew).")
 
-    st.divider()
-    table_page("Saved Hunni-Do Quotes", "quotes", ["client_name", "kind", "details"], key="hunni_quotes")
+        with st.form("hunni_quote"):
+            c1, c2 = st.columns(2)
+            with c1:
+                hq_client = st.text_input("Client name", key="hq_client")
+                crew_size = st.number_input("Crew size", min_value=1, value=suggested_crew or 2, key="hq_crew")
+                hours = st.number_input(
+                    "Estimated hours", min_value=0.5,
+                    value=suggested_hours if suggested_hours > 0 else 3.0, step=0.5, key="hq_hours",
+                )
+            with c2:
+                disposal = st.number_input("Disposal / dump fee ($)", min_value=0.0, value=50.0)
+                miles = st.number_input("Round-trip miles", min_value=0.0, value=10.0, key="hq_miles")
+            submitted = st.form_submit_button("Calculate quote")
 
-with tab_painting:
-    st.subheader("Painting Quote — Auto Estimate")
-    rates = get_rates(conn)
-    with st.form("painting_quote"):
-        c1, c2 = st.columns(2)
-        with c1:
-            pq_client = st.text_input("Client name", key="pq_client")
-            sqft = st.number_input("Square footage to paint", min_value=0.0, value=500.0, step=50.0)
-            coats = st.number_input("Coats", min_value=1, value=2)
-        with c2:
-            rooms = st.number_input("Rooms", min_value=1, value=1)
-            prep_level = st.selectbox("Prep level", ["Light (clean walls)", "Standard (patch/sand)", "Heavy (repairs)"])
-        submitted = st.form_submit_button("Calculate quote")
+        if submitted:
+            crew_cost = rates["crew_rate"] * crew_size * hours
+            mileage_cost = miles * rates["mile_rate_penske"]
+            subtotal = crew_cost + disposal + mileage_cost + rates["fuel_surcharge"] + rates["environmental_fee"]
+            total = subtotal * (1 + rates["tax"])
 
-    if submitted:
-        prep_mult = {"Light (clean walls)": 1.0, "Standard (patch/sand)": 1.15, "Heavy (repairs)": 1.35}[prep_level]
-        base = sqft * rates["painting_rate_per_sqft"] * (coats / 2) * prep_mult
-        setup_fee = rooms * 25
-        subtotal = base + setup_fee
-        total = subtotal * (1 + rates["tax"])
+            st.metric("Estimated total", f"${total:,.2f}")
+            st.write(f"Crew: ${crew_cost:,.2f} · Disposal: ${disposal:,.2f} · "
+                     f"Mileage: ${mileage_cost:,.2f} · Tax: {rates['tax']*100:.2f}%")
 
-        st.metric("Estimated total", f"${total:,.2f}")
-        st.write(f"Paint/labor: ${base:,.2f} · Room setup: ${setup_fee:,.2f} · Tax: {rates['tax']*100:.2f}%")
+            assembly_note = f", assembly: {', '.join(picked)}" if picked else ""
+            conn.execute(
+                "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
+                (str(uuid.uuid4())[:8], "hunni-do", hq_client, datetime.utcnow().isoformat(),
+                 f"crew {crew_size}, {hours}h, disposal ${disposal}, {miles}mi{assembly_note}", f"{total:.2f}"),
+            )
+            conn.commit()
+            st.success("Quote saved.")
 
-        conn.execute(
-            "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
-            (str(uuid.uuid4())[:8], "painting", pq_client, datetime.utcnow().isoformat(),
-             f"{sqft}sqft, {coats} coats, {rooms} rooms, {prep_level}", f"{total:.2f}"),
-        )
-        conn.commit()
-        st.success("Quote saved.")
+        st.divider()
+        table_page("Saved Hunni-Do Quotes", "quotes", ["client_name", "kind", "details"], key="hunni_quotes")
 
-    st.divider()
-    table_page("Saved Painting Quotes", "quotes", ["client_name", "kind", "details"], key="painting_quotes")
 
-with tab_carpentry:
-    st.subheader("Carpentry / Handyman Quote — Auto Estimate")
-    rates = get_rates(conn)
-    with st.form("carpentry_quote"):
-        c1, c2 = st.columns(2)
-        with c1:
-            cq_client = st.text_input("Client name", key="cq_client")
-            hours = st.number_input("Estimated hours", min_value=0.5, value=3.0, step=0.5, key="cq_hours")
-        with c2:
-            materials_cost = st.number_input("Materials cost ($)", min_value=0.0, value=0.0)
-            trip_fee = st.number_input("Trip / travel fee ($)", min_value=0.0, value=0.0)
-        job_desc = st.text_input("Job description (e.g. shelving, trim, door repair)")
-        submitted = st.form_submit_button("Calculate quote")
+    if quote_pick == "Painting":
+        st.subheader("Painting Quote — Auto Estimate")
+        rates = get_rates(conn)
+        with st.form("painting_quote"):
+            c1, c2 = st.columns(2)
+            with c1:
+                pq_client = st.text_input("Client name", key="pq_client")
+                sqft = st.number_input("Square footage to paint", min_value=0.0, value=500.0, step=50.0)
+                coats = st.number_input("Coats", min_value=1, value=2)
+            with c2:
+                rooms = st.number_input("Rooms", min_value=1, value=1)
+                prep_level = st.selectbox("Prep level", ["Light (clean walls)", "Standard (patch/sand)", "Heavy (repairs)"])
+            submitted = st.form_submit_button("Calculate quote")
 
-    if submitted:
-        labor = hours * rates["carpentry_hourly_rate"]
-        subtotal = labor + materials_cost + trip_fee
-        total = subtotal * (1 + rates["tax"])
+        if submitted:
+            prep_mult = {"Light (clean walls)": 1.0, "Standard (patch/sand)": 1.15, "Heavy (repairs)": 1.35}[prep_level]
+            base = sqft * rates["painting_rate_per_sqft"] * (coats / 2) * prep_mult
+            setup_fee = rooms * 25
+            subtotal = base + setup_fee
+            total = subtotal * (1 + rates["tax"])
 
-        st.metric("Estimated total", f"${total:,.2f}")
-        st.write(f"Labor: ${labor:,.2f} · Materials: ${materials_cost:,.2f} · "
-                 f"Trip fee: ${trip_fee:,.2f} · Tax: {rates['tax']*100:.2f}%")
+            st.metric("Estimated total", f"${total:,.2f}")
+            st.write(f"Paint/labor: ${base:,.2f} · Room setup: ${setup_fee:,.2f} · Tax: {rates['tax']*100:.2f}%")
 
-        conn.execute(
-            "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
-            (str(uuid.uuid4())[:8], "carpentry", cq_client, datetime.utcnow().isoformat(),
-             f"{job_desc}, {hours}h, materials ${materials_cost}", f"{total:.2f}"),
-        )
-        conn.commit()
-        st.success("Quote saved.")
+            conn.execute(
+                "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
+                (str(uuid.uuid4())[:8], "painting", pq_client, datetime.utcnow().isoformat(),
+                 f"{sqft}sqft, {coats} coats, {rooms} rooms, {prep_level}", f"{total:.2f}"),
+            )
+            conn.commit()
+            st.success("Quote saved.")
 
-    st.divider()
-    table_page("Saved Carpentry Quotes", "quotes", ["client_name", "kind", "details"], key="carpentry_quotes")
+        st.divider()
+        table_page("Saved Painting Quotes", "quotes", ["client_name", "kind", "details"], key="painting_quotes")
 
-with tab_landscaping:
-    st.subheader("Landscaping / Yard Quote — Auto Estimate")
-    rates = get_rates(conn)
-    with st.form("landscaping_quote"):
-        c1, c2 = st.columns(2)
-        with c1:
-            lq_client = st.text_input("Client name", key="lq_client")
-            crew_size = st.number_input("Crew size", min_value=1, value=2, key="lq_crew")
-            hours = st.number_input("Estimated hours", min_value=0.5, value=2.0, step=0.5, key="lq_hours")
-        with c2:
-            service = st.selectbox("Service", ["Mow/Trim", "Cleanup/Leaves", "Mulch/Beds", "Planting", "Hauling/Debris"])
-            recurring = st.selectbox("Frequency", ["One-time", "Weekly", "Bi-weekly", "Monthly"])
-        submitted = st.form_submit_button("Calculate quote")
 
-    if submitted:
-        labor = crew_size * hours * rates["landscaping_hourly_rate"]
-        discount = 0.9 if recurring != "One-time" else 1.0
-        total = labor * discount * (1 + rates["tax"])
+    if quote_pick == "Carpentry":
+        st.subheader("Carpentry / Handyman Quote — Auto Estimate")
+        rates = get_rates(conn)
+        with st.form("carpentry_quote"):
+            c1, c2 = st.columns(2)
+            with c1:
+                cq_client = st.text_input("Client name", key="cq_client")
+                hours = st.number_input("Estimated hours", min_value=0.5, value=3.0, step=0.5, key="cq_hours")
+            with c2:
+                materials_cost = st.number_input("Materials cost ($)", min_value=0.0, value=0.0)
+                trip_fee = st.number_input("Trip / travel fee ($)", min_value=0.0, value=0.0)
+            job_desc = st.text_input("Job description (e.g. shelving, trim, door repair)")
+            submitted = st.form_submit_button("Calculate quote")
 
-        st.metric("Estimated total" + (" (recurring rate)" if recurring != "One-time" else ""), f"${total:,.2f}")
-        st.write(f"Labor: ${labor:,.2f} · Service: {service} · Frequency: {recurring} · Tax: {rates['tax']*100:.2f}%")
+        if submitted:
+            labor = hours * rates["carpentry_hourly_rate"]
+            subtotal = labor + materials_cost + trip_fee
+            total = subtotal * (1 + rates["tax"])
 
-        conn.execute(
-            "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
-            (str(uuid.uuid4())[:8], "landscaping", lq_client, datetime.utcnow().isoformat(),
-             f"{service}, crew {crew_size}, {hours}h, {recurring}", f"{total:.2f}"),
-        )
-        conn.commit()
-        st.success("Quote saved.")
+            st.metric("Estimated total", f"${total:,.2f}")
+            st.write(f"Labor: ${labor:,.2f} · Materials: ${materials_cost:,.2f} · "
+                     f"Trip fee: ${trip_fee:,.2f} · Tax: {rates['tax']*100:.2f}%")
 
-    st.divider()
-    table_page("Saved Landscaping Quotes", "quotes", ["client_name", "kind", "details"], key="landscaping_quotes")
+            conn.execute(
+                "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
+                (str(uuid.uuid4())[:8], "carpentry", cq_client, datetime.utcnow().isoformat(),
+                 f"{job_desc}, {hours}h, materials ${materials_cost}", f"{total:.2f}"),
+            )
+            conn.commit()
+            st.success("Quote saved.")
+
+        st.divider()
+        table_page("Saved Carpentry Quotes", "quotes", ["client_name", "kind", "details"], key="carpentry_quotes")
+
+
+    if quote_pick == "Landscaping":
+        st.subheader("Landscaping / Yard Quote — Auto Estimate")
+        rates = get_rates(conn)
+        with st.form("landscaping_quote"):
+            c1, c2 = st.columns(2)
+            with c1:
+                lq_client = st.text_input("Client name", key="lq_client")
+                crew_size = st.number_input("Crew size", min_value=1, value=2, key="lq_crew")
+                hours = st.number_input("Estimated hours", min_value=0.5, value=2.0, step=0.5, key="lq_hours")
+            with c2:
+                service = st.selectbox("Service", ["Mow/Trim", "Cleanup/Leaves", "Mulch/Beds", "Planting", "Hauling/Debris"])
+                recurring = st.selectbox("Frequency", ["One-time", "Weekly", "Bi-weekly", "Monthly"])
+            submitted = st.form_submit_button("Calculate quote")
+
+        if submitted:
+            labor = crew_size * hours * rates["landscaping_hourly_rate"]
+            discount = 0.9 if recurring != "One-time" else 1.0
+            total = labor * discount * (1 + rates["tax"])
+
+            st.metric("Estimated total" + (" (recurring rate)" if recurring != "One-time" else ""), f"${total:,.2f}")
+            st.write(f"Labor: ${labor:,.2f} · Service: {service} · Frequency: {recurring} · Tax: {rates['tax']*100:.2f}%")
+
+            conn.execute(
+                "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
+                (str(uuid.uuid4())[:8], "landscaping", lq_client, datetime.utcnow().isoformat(),
+                 f"{service}, crew {crew_size}, {hours}h, {recurring}", f"{total:.2f}"),
+            )
+            conn.commit()
+            st.success("Quote saved.")
+
+        st.divider()
+        table_page("Saved Landscaping Quotes", "quotes", ["client_name", "kind", "details"], key="landscaping_quotes")
+
 
 with tab_labor:
     st.subheader("Labor & Other Expenses")
@@ -635,9 +662,7 @@ with tab_notes:
     note_mode = st.radio("What are you photographing?", ["Handwritten/typed note", "Room or furniture item"],
                           horizontal=True)
     note_client = st.text_input("Client / job reference", key="note_client")
-    photo = st.camera_input("Take a photo") or st.file_uploader(
-        "...or upload one", type=["jpg", "jpeg", "png"], key="note_upload"
-    )
+    photo = photo_input("note", "Take a photo")
 
     if photo is not None:
         img_bytes = photo.getvalue()
@@ -665,7 +690,12 @@ with tab_notes:
                      user["username"], ocr_text, ""),
                 )
                 conn.commit()
-                st.success("Note saved.")
+                photo_path = save_photo(img_bytes, prefix=f"note_{note_client or 'client'}")
+                text_path = save_text(ocr_text, prefix=f"note_{note_client or 'client'}")
+                if photo_path:
+                    st.success(f"Note saved. Also mirrored to {photo_path} / {text_path}")
+                else:
+                    st.success("Note saved. (Local photo/text mirror only works when running locally with G Drive mounted.)")
                 st.session_state.pop("note_ocr_text", None)
                 st.rerun()
 
@@ -698,6 +728,8 @@ with tab_notes:
                      user["username"], "", manual_tags),
                 )
                 conn.commit()
+                save_photo(img_bytes, prefix=f"item_{note_client or 'client'}")
+                save_text(manual_tags, prefix=f"item_{note_client or 'client'}")
                 st.success("Saved.")
                 st.session_state.pop("note_vision_labels", None)
                 st.rerun()
@@ -709,6 +741,11 @@ with tab_sell:
     st.subheader("Sell With Us — Client Item Intake")
     st.caption("Take a picture of something a client wants to sell (RAM Insiders / resale).")
 
+    st.markdown("**Photo of the item**")
+    rs_photo = photo_input("resale", "Take a photo of the item")
+    if rs_photo is not None:
+        st.image(rs_photo.getvalue(), width=250)
+
     with st.form("resale_item"):
         c1, c2 = st.columns(2)
         with c1:
@@ -717,9 +754,6 @@ with tab_sell:
         with c2:
             rs_price = st.number_input("Asking price ($)", min_value=0.0, value=0.0, step=5.0)
             rs_status = st.selectbox("Status", ["New intake", "Listed", "Sold", "Declined"])
-        rs_photo = st.camera_input("Photo of the item", key="rs_camera") or st.file_uploader(
-            "...or upload a photo", type=["jpg", "jpeg", "png"], key="rs_upload"
-        )
         submitted = st.form_submit_button("Save item")
 
     if submitted:
@@ -737,6 +771,9 @@ with tab_sell:
              photo_b64, ai_labels, datetime.utcnow().isoformat(), user["username"]),
         )
         conn.commit()
+        if rs_photo:
+            save_photo(rs_photo.getvalue(), prefix=f"sell_{rs_client or 'client'}")
+            save_text(f"{rs_desc}\nAI tags: {ai_labels}", prefix=f"sell_{rs_client or 'client'}")
         st.success("Item saved." + (f" AI-detected: {ai_labels}" if ai_labels else ""))
         st.rerun()
 

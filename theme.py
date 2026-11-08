@@ -100,6 +100,14 @@ def inject_css():
             min-height: 40px;
         }}
 
+        /* Camera capture is phone/tablet only -- desktop just gets the uploader */
+        @media (min-width: 1025px) {{
+            div[class*="st-key-"][class*="_cam_btn"],
+            div[class*="st-key-"][class*="_camera"] {{
+                display: none !important;
+            }}
+        }}
+
         @media (max-width: 768px) {{
             .block-container {{ padding-left: 0.6rem; padding-right: 0.6rem; }}
             .ram-topbar {{ flex-wrap: wrap; padding: 8px 12px; margin: 0 -0.6rem 1rem -0.6rem; }}
