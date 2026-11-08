@@ -133,6 +133,16 @@ def inject_css():
             white-space: nowrap;
         }}
 
+        /* Dashboard's left/right split stacks vertically on narrow screens */
+        @media (max-width: 900px) {{
+            .st-key-dash_layout > div[data-testid="stHorizontalBlock"] {{
+                flex-direction: column !important;
+            }}
+            .st-key-dash_layout > div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
+                width: 100% !important;
+            }}
+        }}
+
         /* Calendar day-picker grid: keep 7 columns tight enough to never overflow a phone */
         .st-key-cal_grid div[data-testid="stHorizontalBlock"] {{
             gap: 4px !important;
