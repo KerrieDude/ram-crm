@@ -229,6 +229,18 @@ def inject_css():
             font-weight: 400;
         }}
 
+        .st-key-mq_stops_grid div[data-testid="stHorizontalBlock"] {{
+            gap: 0.4rem !important;
+            align-items: center !important;
+        }}
+        .st-key-mq_stops_grid div[data-testid="stTextInput"] input,
+        .st-key-mq_stops_grid div[data-testid="stNumberInput"] input {{
+            padding: 2px 6px !important;
+            min-height: 26px !important;
+            height: 26px !important;
+            font-size: 0.78rem !important;
+        }}
+
         .st-key-ticket_box {{
             border: 1px dashed {RAM_PINK};
             border-radius: 8px;

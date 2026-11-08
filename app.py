@@ -690,30 +690,96 @@ if nav_page == "Quotes":
         c1.metric("Total cubic feet", f"{total_cuft:,.1f}")
         c2.metric("Estimated weight (lbs)", f"{total_weight:,.0f}")
 
-        st.markdown("**2. Access & logistics**")
+        st.markdown("**2. Stops & mileage**")
+        st.caption(
+            "Add every stop the truck makes — starting from the truck's pickup/depot, through each "
+            "additional stop, to the final return. Miles and drive time from each leg roll up into "
+            "the total hours, crew time, and mileage cost below."
+        )
+
+        if "mq_stops" not in st.session_state:
+            st.session_state.mq_stops = [
+                {"label": "Truck depot → Origin", "miles": 0.0, "drive_min": 0, "stairs": 0, "elevator": False},
+                {"label": "Return to truck depot", "miles": 0.0, "drive_min": 0, "stairs": 0, "elevator": False},
+            ]
+
+        total_miles = 0.0
+        total_drive_hrs = 0.0
+        remove_idx = None
+        with st.container(key="mq_stops_grid"):
+            hc1, hc2, hc3, hc4, hc5, hc6, hc7 = st.columns([3, 1, 1, 1, 1, 1, 0.6])
+            for hcol, htext in zip((hc1, hc2, hc3, hc4, hc5, hc6, hc7),
+                                    ("Leg / Stop", "Miles", "Drive (min)", "Stairs", "Elevator", "Adj (hrs)", "")):
+                hcol.markdown(f'<span class="mq-col-label">{htext}</span>', unsafe_allow_html=True)
+
+            for i, stop in enumerate(st.session_state.mq_stops):
+                c1, c2, c3, c4, c5, c6, c7 = st.columns([3, 1, 1, 1, 1, 1, 0.6])
+                with c1:
+                    stop["label"] = st.text_input(
+                        "Stop", value=stop["label"], key=f"mq_stop_label_{i}", label_visibility="collapsed",
+                    )
+                with c2:
+                    stop["miles"] = st.number_input(
+                        "Miles", min_value=0.0, value=float(stop["miles"]), step=0.5,
+                        key=f"mq_stop_miles_{i}", label_visibility="collapsed",
+                    )
+                with c3:
+                    stop["drive_min"] = st.number_input(
+                        "Drive min", min_value=0, value=int(stop["drive_min"]), step=1,
+                        key=f"mq_stop_drive_{i}", label_visibility="collapsed",
+                    )
+                with c4:
+                    stop["stairs"] = st.number_input(
+                        "Stairs", min_value=0, value=int(stop["stairs"]), step=1,
+                        key=f"mq_stop_stairs_{i}", label_visibility="collapsed",
+                    )
+                with c5:
+                    stop["elevator"] = st.checkbox(
+                        "Elevator", value=stop["elevator"], key=f"mq_stop_elev_{i}", label_visibility="collapsed",
+                    )
+                adj_hrs = stop["stairs"] * 0.25 + (0.5 if stop["elevator"] else 0)
+                with c6:
+                    st.markdown(f'<span class="mq-cuft">{adj_hrs:.2f}</span>', unsafe_allow_html=True)
+                with c7:
+                    if len(st.session_state.mq_stops) > 2 and st.button("🗑", key=f"mq_stop_del_{i}"):
+                        remove_idx = i
+                total_miles += stop["miles"]
+                total_drive_hrs += stop["drive_min"] / 60 + adj_hrs
+
+            if st.button("➕ Add stop"):
+                st.session_state.mq_stops.insert(
+                    len(st.session_state.mq_stops) - 1,
+                    {"label": f"Stop {len(st.session_state.mq_stops)}", "miles": 0.0, "drive_min": 0,
+                     "stairs": 0, "elevator": False},
+                )
+                st.rerun()
+
+        if remove_idx is not None:
+            st.session_state.mq_stops.pop(remove_idx)
+            st.rerun()
+
+        sm1, sm2 = st.columns(2)
+        sm1.metric("Total miles (truck depot to depot)", f"{total_miles:,.1f}")
+        sm2.metric("Total drive + access time", f"{total_drive_hrs:.2f} hrs")
+
+        st.markdown("**3. Crew & truck**")
         with st.form("move_quote"):
-            c1, c2, c3 = st.columns(3)
+            c1, c2 = st.columns(2)
             with c1:
                 crew_size = st.number_input("Crew size", min_value=1, value=3)
+            with c2:
                 truck = st.selectbox("Truck", ["Penske", "U-Haul"])
                 if truck in RENTAL_BRANDS and os.path.exists(RENTAL_BRANDS[truck]):
                     st.image(RENTAL_BRANDS[truck], width=100)
-            with c2:
-                stairs = st.number_input("Stairs (flights)", min_value=0, value=0)
-                elevator = st.checkbox("Elevator at origin or destination")
-            with c3:
-                drive_time_hrs = st.number_input("One-way drive time (hrs)", min_value=0.0, value=0.3, step=0.1)
-                miles = st.number_input("Round-trip miles", min_value=0.0, value=10.0)
             manual_override = st.number_input(
-                "Override estimated hours (0 = auto-calculate from inventory)", min_value=0.0, value=0.0, step=0.5
+                "Override estimated hours (0 = auto-calculate from inventory + stops)", min_value=0.0, value=0.0, step=0.5
             )
             submitted = st.form_submit_button("Calculate quote")
 
         if submitted:
             auto_hours = (
                 rates["base_access_hours"]
-                + stairs * 0.25 + (0.5 if elevator else 0)
-                + drive_time_hrs * 2
+                + total_drive_hrs
                 + (total_cuft / max(crew_size, 1) / rates["cuft_per_mover_hour"] if rates["cuft_per_mover_hour"] else 0)
             )
             hours = manual_override if manual_override > 0 else round(auto_hours, 2)
@@ -722,7 +788,7 @@ if nav_page == "Quotes":
             day_rate = rates["day_rate_penske"] if truck == "Penske" else rates["day_rate_uhaul"]
             mile_rate = rates["mile_rate_penske"] if truck == "Penske" else rates["mile_rate_uhaul"]
             free_miles = rates.get("free_miles_uhaul", 0) if truck == "U-Haul" else 0
-            billable_miles = max(0, miles - free_miles)
+            billable_miles = max(0, total_miles - free_miles)
             truck_cost = day_rate + billable_miles * mile_rate
             fees = (rates["fuel_surcharge"] + rates["environmental_fee"]
                     + rates["vehicle_licensing_fee"] + rates["liability_insurance"])
@@ -733,13 +799,15 @@ if nav_page == "Quotes":
             st.write(f"Estimated hours: {hours:.2f} (auto: {auto_hours:.2f}) · "
                      f"Crew: ${crew_cost:,.2f} · Management: ${rates['management']:,.2f} · "
                      f"Truck ({truck}): ${truck_cost:,.2f} · Fees: ${fees:,.2f} · Tax: {rates['tax']*100:.2f}%")
+            st.caption(f"Route: {total_miles:,.1f} mi across {len(st.session_state.mq_stops)} legs, "
+                       f"{total_drive_hrs:.2f} hrs drive + access")
             if item_counts:
                 st.caption("Inventory: " + "; ".join(f"{k} ×{v}" for k, v in item_counts.items()))
 
             conn.execute(
                 "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
                 (str(uuid.uuid4())[:8], "move", mq_client, datetime.utcnow().isoformat(),
-                 f"{truck}, crew {crew_size}, {hours:.2f}h, {miles}mi, {total_cuft:.0f}cuft", f"{total:.2f}"),
+                 f"{truck}, crew {crew_size}, {hours:.2f}h, {total_miles:.1f}mi, {total_cuft:.0f}cuft", f"{total:.2f}"),
             )
             conn.commit()
             st.success("Quote saved.")
