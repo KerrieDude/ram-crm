@@ -2,11 +2,39 @@ import hashlib
 import os
 import streamlit as st
 
-from db import get_conn
+from db import get_conn, USING_POSTGRES
 
 
 def hash_pw(pw: str) -> str:
     return hashlib.sha256(pw.encode()).hexdigest()
+
+
+def list_users(conn):
+    rows = conn.execute("SELECT username, display_name, role FROM users ORDER BY username").fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_user(conn, username, password_hash, display_name, role):
+    if USING_POSTGRES:
+        conn.execute(
+            """INSERT INTO users (username, password_hash, display_name, role) VALUES (?,?,?,?)
+               ON CONFLICT (username) DO UPDATE SET
+                 password_hash=EXCLUDED.password_hash,
+                 display_name=EXCLUDED.display_name,
+                 role=EXCLUDED.role""",
+            (username, password_hash, display_name, role),
+        )
+    else:
+        conn.execute(
+            "INSERT OR REPLACE INTO users (username, password_hash, display_name, role) VALUES (?,?,?,?)",
+            (username, password_hash, display_name, role),
+        )
+    conn.commit()
+
+
+def set_password(conn, username, password_hash):
+    conn.execute("UPDATE users SET password_hash = ? WHERE username = ?", (password_hash, username))
+    conn.commit()
 
 
 def ensure_default_admin():

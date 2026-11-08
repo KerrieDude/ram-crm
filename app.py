@@ -2,8 +2,8 @@ import os
 import pandas as pd
 import streamlit as st
 
-from db import get_conn, init_db, DB_PATH
-from auth import login_wall
+from db import get_conn, init_db, DB_PATH, USING_POSTGRES
+from auth import login_wall, hash_pw, list_users, upsert_user, set_password
 
 st.set_page_config(page_title="RAM CRM", page_icon="assets/logo.png" if os.path.exists("assets/logo.png") else "📋", layout="wide")
 
@@ -21,7 +21,7 @@ with st.sidebar:
     st.divider()
     page = st.radio("Go to", ["Clients", "Rolodex", "Jobs", "Settings"])
     st.divider()
-    st.caption(f"DB: `{DB_PATH}`")
+    st.caption(f"DB: `{'Postgres (cloud)' if USING_POSTGRES else DB_PATH}`")
 
 conn = get_conn()
 
@@ -48,35 +48,60 @@ elif page == "Jobs":
     table_page("Daily Jobs", "jobs", ["job1", "job2", "crew1", "date"])
 elif page == "Settings":
     st.header("Settings")
-    st.markdown(
-        """
-        **Database location**
-        The CRM database currently lives on Google Drive at:
-        """
-    )
-    st.code(DB_PATH)
-    st.markdown(
-        """
-        To move it later (e.g. to a managed Postgres DB or a server disk), set the
-        `RAM_CRM_DB_PATH` environment variable to the new SQLite path, or swap `db.py`
-        for a different connection — nothing else in the app needs to change.
-        """
-    )
+
+    st.subheader("My account")
+    with st.form("change_my_password"):
+        st.caption(f"Signed in as `{user['username']}`")
+        new_pw = st.text_input("New password", type="password")
+        new_pw2 = st.text_input("Confirm new password", type="password")
+        if st.form_submit_button("Change my password"):
+            if not new_pw:
+                st.error("Password can't be empty.")
+            elif new_pw != new_pw2:
+                st.error("Passwords don't match.")
+            else:
+                set_password(conn, user["username"], hash_pw(new_pw))
+                st.success("Password changed.")
+
     if user["role"] == "admin":
         st.divider()
-        st.subheader("Add a user")
+        st.subheader("Manage users")
+
+        users = list_users(conn)
+        usernames = [u["username"] for u in users]
+        st.dataframe(pd.DataFrame(users), use_container_width=True, hide_index=True)
+
+        st.markdown("**Edit an existing user**")
+        with st.form("edit_user"):
+            target = st.selectbox("User", usernames) if usernames else None
+            edit_dn = st.text_input("Display name")
+            edit_role = st.selectbox("Role", ["staff", "admin"])
+            edit_pw = st.text_input("New password (leave blank to keep current)", type="password")
+            if st.form_submit_button("Save changes") and target:
+                current = next(u for u in users if u["username"] == target)
+                pw_hash = hash_pw(edit_pw) if edit_pw else conn.execute(
+                    "SELECT password_hash FROM users WHERE username = ?", (target,)
+                ).fetchone()["password_hash"]
+                upsert_user(conn, target, pw_hash, edit_dn or current["display_name"], edit_role)
+                st.success(f"User '{target}' updated.")
+                st.rerun()
+
+        st.markdown("**Add a new user**")
         with st.form("add_user"):
             nu = st.text_input("New username")
             np_ = st.text_input("New password", type="password")
             dn = st.text_input("Display name")
-            role = st.selectbox("Role", ["staff", "admin"])
+            role = st.selectbox("Role", ["staff", "admin"], key="new_user_role")
             if st.form_submit_button("Create user"):
-                from auth import hash_pw
-                conn.execute(
-                    "INSERT OR REPLACE INTO users (username, password_hash, display_name, role) VALUES (?,?,?,?)",
-                    (nu, hash_pw(np_), dn, role),
-                )
-                conn.commit()
-                st.success(f"User '{nu}' created.")
+                if not nu or not np_:
+                    st.error("Username and password are required.")
+                else:
+                    upsert_user(conn, nu, hash_pw(np_), dn, role)
+                    st.success(f"User '{nu}' created.")
+                    st.rerun()
+
+        st.divider()
+        st.markdown("**Database location**")
+        st.code(f"Postgres (cloud)" if USING_POSTGRES else DB_PATH)
 
 conn.close()
