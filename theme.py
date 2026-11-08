@@ -84,6 +84,30 @@ def inject_css():
             background: #c228a8;
             color: #fff;
         }}
+
+        /* Tablet / phone responsiveness */
+        .stTabs [data-baseweb="tab-list"] {{
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            -webkit-overflow-scrolling: touch;
+        }}
+        div.stButton > button, div.stFormSubmitButton > button {{
+            min-height: 44px;
+        }}
+        div[data-testid="stTextInput"] input,
+        div[data-testid="stNumberInput"] input,
+        div[data-baseweb="select"] {{
+            min-height: 40px;
+        }}
+
+        @media (max-width: 768px) {{
+            .block-container {{ padding-left: 0.6rem; padding-right: 0.6rem; }}
+            .ram-topbar {{ flex-wrap: wrap; padding: 8px 12px; margin: 0 -0.6rem 1rem -0.6rem; }}
+            .ram-topbar img {{ height: 36px; }}
+            .ram-topbar .ram-title {{ font-size: 1.3rem; }}
+            .ram-topbar .ram-user {{ width: 100%; text-align: left; font-size: 0.75rem; }}
+            .stTabs [data-baseweb="tab"] {{ font-size: 0.95rem; padding: 6px 12px; }}
+        }}
         </style>
         """,
         unsafe_allow_html=True,
