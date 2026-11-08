@@ -266,38 +266,175 @@ if nav_page == "Dashboard":
         st.caption("📦 = jobs logged · 📅 = booking. Tap a day for details.")
 
 if nav_page == "Clients":
-    st.subheader("Add a client")
-    with st.form("add_client"):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            cl_first = st.text_input("First name")
-            cl_last = st.text_input("Last name")
-            cl_cell = st.text_input("Cell")
-        with c2:
-            cl_email = st.text_input("Email")
-            cl_street = st.text_input("Street")
-            cl_city = st.text_input("City")
-        with c3:
-            cl_st = st.text_input("State", value="NJ")
-            cl_zip = st.text_input("Zip")
-            cl_realtor = st.text_input("Realtor")
-        cl_comments = st.text_area("Comments", height=80)
-        if st.form_submit_button("Add client"):
+    st.session_state.setdefault("clients_mode", "Search")
+    clients_mode = st.pills("Clients", ["Search", "Add"], key="clients_mode")
+
+    if clients_mode == "Add":
+        st.subheader("Add a client")
+        with st.form("add_client"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                cl_first = st.text_input("First name")
+                cl_last = st.text_input("Last name")
+                cl_cell = st.text_input("Cell")
+            with c2:
+                cl_email = st.text_input("Email")
+                cl_street = st.text_input("Street")
+                cl_city = st.text_input("City")
+            with c3:
+                cl_st = st.text_input("State", value="NJ")
+                cl_zip = st.text_input("Zip")
+                cl_realtor = st.text_input("Realtor")
+            cl_comments = st.text_area("Comments", height=80)
+            check_submit = st.form_submit_button("Check & add client")
+
+        def _insert_client(first, last, cell, email, street, city, st_, zip_, realtor, comments):
             new_id = gen_id()
-            client_name = f"{cl_first} {cl_last}".strip()
+            client_name = f"{first} {last}".strip()
             conn.execute(
                 """INSERT OR REPLACE INTO clients
                 (client_id, first, last, client_name, street, city, st, zip, cell, email, realtor, comments)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (new_id, cl_first, cl_last, client_name, cl_street, cl_city, cl_st, cl_zip,
-                 cl_cell, cl_email, cl_realtor, cl_comments),
+                (new_id, first, last, client_name, street, city, st_, zip_, cell, email, realtor, comments),
             )
             conn.commit()
-            st.success(f"Client added — id: {new_id}")
-            st.rerun()
+            return new_id, client_name
+
+        if check_submit:
+            full_name = f"{cl_first} {cl_last}".strip().lower()
+            dupes = conn.execute(
+                """SELECT * FROM clients WHERE
+                   LOWER(client_name) LIKE ?
+                   OR (LOWER(first) = ? AND LOWER(last) = ? AND ? <> '')
+                   OR (cell <> '' AND cell = ?)
+                   OR (email <> '' AND LOWER(email) = ?)""",
+                (f"%{full_name}%", cl_first.lower(), cl_last.lower(), cl_last, cl_cell, cl_email.lower()),
+            ).fetchall()
+            if dupes:
+                st.session_state["client_dupes"] = [dict(d) for d in dupes]
+                st.session_state["client_pending"] = dict(
+                    first=cl_first, last=cl_last, cell=cl_cell, email=cl_email, street=cl_street,
+                    city=cl_city, st=cl_st, zip=cl_zip, realtor=cl_realtor, comments=cl_comments,
+                )
+            else:
+                new_id, client_name = _insert_client(cl_first, cl_last, cl_cell, cl_email, cl_street,
+                                                       cl_city, cl_st, cl_zip, cl_realtor, cl_comments)
+                st.success(f"Client '{client_name}' added — id: {new_id}")
+                st.rerun()
+
+        if st.session_state.get("client_dupes"):
+            st.warning("Found existing client(s) that might be the same person — add anyway, or cancel?")
+            for d in st.session_state["client_dupes"]:
+                st.write(f"- **{d['client_name']}** — {d['city'] or ''} · {d['cell'] or ''} · id `{d['client_id']}`")
+            dc1, dc2 = st.columns(2)
+            with dc1:
+                if st.button("Add as a new client anyway", use_container_width=True):
+                    p = st.session_state["client_pending"]
+                    new_id, client_name = _insert_client(p["first"], p["last"], p["cell"], p["email"],
+                                                           p["street"], p["city"], p["st"], p["zip"],
+                                                           p["realtor"], p["comments"])
+                    st.success(f"Client '{client_name}' added — id: {new_id}")
+                    st.session_state.pop("client_dupes", None)
+                    st.session_state.pop("client_pending", None)
+                    st.rerun()
+            with dc2:
+                if st.button("Cancel", use_container_width=True):
+                    st.session_state.pop("client_dupes", None)
+                    st.session_state.pop("client_pending", None)
+                    st.rerun()
+
+    else:
+        st.subheader("Search clients")
+        q = st.text_input("Search by name, phone, email, or address", key="client_search_q")
+        if q:
+            like = f"%{q.lower()}%"
+            results = conn.execute(
+                """SELECT * FROM clients WHERE
+                   LOWER(client_name) LIKE ? OR LOWER(first) LIKE ? OR LOWER(last) LIKE ?
+                   OR cell LIKE ? OR LOWER(email) LIKE ? OR LOWER(street) LIKE ? OR LOWER(city) LIKE ?""",
+                (like, like, like, f"%{q}%", like, like, like),
+            ).fetchall()
+            st.caption(f"{len(results)} match(es)")
+            for r in results:
+                r = dict(r)
+                label = r["client_name"] or f"{r['first']} {r['last']}".strip() or "(unnamed)"
+                with st.expander(f"{label} — {r['city'] or ''} (id {r['client_id']})"):
+                    st.write(f"**Address:** {r['street'] or ''}, {r['city'] or ''}, {r['st'] or ''} {r['zip'] or ''}")
+                    st.write(f"**Cell:** {r['cell'] or '—'}  ·  **Email:** {r['email'] or '—'}")
+                    if r["realtor"]:
+                        st.write(f"**Realtor:** {r['realtor']}")
+                    if r["comments"]:
+                        st.write(f"**Comments:** {r['comments']}")
+
+                    name_key = (r["client_name"] or r["last"] or r["first"] or "").strip().lower()
+                    name_like = f"%{name_key}%"
+                    found_anything = False
+
+                    if name_key:
+                        job_rows = conn.execute(
+                            """SELECT * FROM jobs WHERE LOWER(job1) LIKE ? OR LOWER(job2) LIKE ?
+                               OR LOWER(job3) LIKE ? OR LOWER(job4) LIKE ? OR LOWER(job5) LIKE ?""",
+                            (name_like, name_like, name_like, name_like, name_like),
+                        ).fetchall()
+                        if job_rows:
+                            found_anything = True
+                            st.markdown("**Jobs on file:**")
+                            st.dataframe(pd.DataFrame([dict(x) for x in job_rows]), use_container_width=True, hide_index=True)
+
+                        quote_rows = conn.execute(
+                            "SELECT * FROM quotes WHERE LOWER(client_name) LIKE ?", (name_like,)
+                        ).fetchall()
+                        if quote_rows:
+                            found_anything = True
+                            st.markdown("**Quotes / billed:**")
+                            st.dataframe(pd.DataFrame([dict(x) for x in quote_rows]), use_container_width=True, hide_index=True)
+
+                        booking_rows = conn.execute(
+                            "SELECT * FROM save_dates WHERE LOWER(client) LIKE ?", (name_like,)
+                        ).fetchall()
+                        if booking_rows:
+                            found_anything = True
+                            st.markdown("**Save-the-date bookings:**")
+                            df_b = pd.DataFrame([dict(x) for x in booking_rows])[["date", "type", "address"]]
+                            st.dataframe(df_b, use_container_width=True, hide_index=True)
+
+                        note_rows = conn.execute(
+                            "SELECT * FROM client_notes WHERE LOWER(client_ref) LIKE ?", (name_like,)
+                        ).fetchall()
+                        if note_rows:
+                            found_anything = True
+                            st.markdown("**Notes & photos:**")
+                            for n in note_rows:
+                                n = dict(n)
+                                st.caption(f"{(n['created_at'] or '')[:10]} by {n['logged_by']}")
+                                if n["ocr_text"]:
+                                    st.write(n["ocr_text"])
+                                if n["manual_note"]:
+                                    st.write(n["manual_note"])
+                                if n.get("photo_base64"):
+                                    st.image(base64.b64decode(n["photo_base64"]), width=200)
+
+                        resale_rows = conn.execute(
+                            "SELECT * FROM resale_items WHERE LOWER(client_name) LIKE ?", (name_like,)
+                        ).fetchall()
+                        if resale_rows:
+                            found_anything = True
+                            st.markdown("**Items for sale:**")
+                            for it in resale_rows:
+                                it = dict(it)
+                                st.write(f"{it['description']} — ${it['asking_price']} ({it['status']})")
+                                if it.get("photo_base64"):
+                                    st.image(base64.b64decode(it["photo_base64"]), width=150)
+
+                    if not found_anything:
+                        st.caption("No jobs, quotes, bookings, or notes on file yet for this client.")
+        else:
+            st.caption("Type a name, phone, email, or address above to search.")
 
     st.divider()
-    table_page("Clients", "clients", ["client_name", "first", "last", "street", "city", "email", "cell"])
+    with st.expander("Full client list"):
+        table_page("Clients", "clients", ["client_name", "first", "last", "street", "city", "email", "cell"],
+                   key="all_clients")
 
 if nav_page == "Rolodex":
     st.subheader("Add a contact")
@@ -817,10 +954,10 @@ if nav_page == "Notes & Photos":
             if st.button("Save note"):
                 conn.execute(
                     """INSERT OR REPLACE INTO client_notes
-                    (note_id, client_ref, created_at, logged_by, ocr_text, manual_note)
-                    VALUES (?,?,?,?,?,?)""",
+                    (note_id, client_ref, created_at, logged_by, ocr_text, manual_note, photo_base64)
+                    VALUES (?,?,?,?,?,?,?)""",
                     (str(uuid.uuid4())[:8], note_client, datetime.utcnow().isoformat(),
-                     user["username"], ocr_text, ""),
+                     user["username"], ocr_text, "", base64.b64encode(img_bytes).decode()),
                 )
                 conn.commit()
                 photo_path = save_photo(img_bytes, prefix=f"note_{note_client or 'client'}")
@@ -855,10 +992,10 @@ if nav_page == "Notes & Photos":
             if st.button("Save photo note"):
                 conn.execute(
                     """INSERT OR REPLACE INTO client_notes
-                    (note_id, client_ref, created_at, logged_by, ocr_text, manual_note)
-                    VALUES (?,?,?,?,?,?)""",
+                    (note_id, client_ref, created_at, logged_by, ocr_text, manual_note, photo_base64)
+                    VALUES (?,?,?,?,?,?,?)""",
                     (str(uuid.uuid4())[:8], note_client, datetime.utcnow().isoformat(),
-                     user["username"], "", manual_tags),
+                     user["username"], "", manual_tags, base64.b64encode(img_bytes).decode()),
                 )
                 conn.commit()
                 save_photo(img_bytes, prefix=f"item_{note_client or 'client'}")

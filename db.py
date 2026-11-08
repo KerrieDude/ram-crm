@@ -133,7 +133,8 @@ CREATE TABLE IF NOT EXISTS client_notes (
     created_at TEXT,
     logged_by TEXT,
     ocr_text TEXT,
-    manual_note TEXT
+    manual_note TEXT,
+    photo_base64 TEXT
 );
 
 CREATE TABLE IF NOT EXISTS resale_items (
@@ -150,6 +151,11 @@ CREATE TABLE IF NOT EXISTS resale_items (
 """
 
 
+MIGRATIONS = [
+    "ALTER TABLE client_notes ADD COLUMN photo_base64 TEXT",
+]
+
+
 def init_db():
     conn = get_conn()
     if USING_POSTGRES:
@@ -161,4 +167,12 @@ def init_db():
     else:
         conn.raw.executescript(SCHEMA_SQLITE)
     conn.commit()
+
+    for stmt in MIGRATIONS:
+        try:
+            conn.execute(stmt)
+            conn.commit()
+        except Exception:
+            conn.raw.rollback() if USING_POSTGRES else None
+
     conn.close()
