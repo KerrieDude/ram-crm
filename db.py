@@ -126,6 +126,27 @@ CREATE TABLE IF NOT EXISTS expenses (
     notes TEXT,
     logged_by TEXT
 );
+
+CREATE TABLE IF NOT EXISTS client_notes (
+    note_id TEXT PRIMARY KEY,
+    client_ref TEXT,
+    created_at TEXT,
+    logged_by TEXT,
+    ocr_text TEXT,
+    manual_note TEXT
+);
+
+CREATE TABLE IF NOT EXISTS resale_items (
+    item_id TEXT PRIMARY KEY,
+    client_name TEXT,
+    description TEXT,
+    asking_price TEXT,
+    status TEXT,
+    photo_base64 TEXT,
+    ai_labels TEXT,
+    created_at TEXT,
+    logged_by TEXT
+);
 """
 
 

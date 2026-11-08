@@ -15,6 +15,9 @@ from packing_calc import lookup as packing_lookup, BEDROOM_OPTIONS, PERSON_OPTIO
 from labor_ref import (CREW_HOURS, HOME_SIZES, CREW_SIZES, RENT_A_CRATE, RENT_A_CRATE_UNIT,
                         REDI_BOX, REDI_BOX_UNIT, TRUCKS, RENTAL_BRANDS)
 from ikea_assembly import IKEA_ITEMS, BRANDS as IKEA_BRANDS, label as ikea_label
+from ocr import image_to_text
+from vision import identify_items, api_key_configured
+import base64
 
 st.set_page_config(
     page_title="RAM CRM",
@@ -41,10 +44,11 @@ def get_rates(conn):
 
 
 (tab_dashboard, tab_calendar, tab_clients, tab_rolodex, tab_dates, tab_jobs, tab_move_quote,
- tab_hunni_quote, tab_painting, tab_carpentry, tab_landscaping, tab_labor, tab_settings) = st.tabs(
+ tab_hunni_quote, tab_painting, tab_carpentry, tab_landscaping, tab_labor, tab_notes,
+ tab_sell, tab_settings) = st.tabs(
     ["Dashboard", "Calendar", "Clients", "Rolodex", "Date Book", "Daily Run",
      "Move Quote", "Hunni-Do Quote", "Painting Quote", "Carpentry Quote",
-     "Landscaping Quote", "Labor & Expenses", "Settings"]
+     "Landscaping Quote", "Labor & Expenses", "Notes & Photos", "Sell With Us", "Settings"]
 )
 
 
@@ -620,6 +624,136 @@ with tab_labor:
         with col:
             if os.path.exists(logo_path):
                 st.image(logo_path, width=140, caption=brand)
+
+with tab_notes:
+    st.subheader("Notes & Photos")
+    st.caption(
+        "Take a photo of a handwritten or typed note and pull the text out automatically, "
+        "or snap a photo of a room/item for a furniture ID assist on junk-removal and move quotes."
+    )
+
+    note_mode = st.radio("What are you photographing?", ["Handwritten/typed note", "Room or furniture item"],
+                          horizontal=True)
+    note_client = st.text_input("Client / job reference", key="note_client")
+    photo = st.camera_input("Take a photo") or st.file_uploader(
+        "...or upload one", type=["jpg", "jpeg", "png"], key="note_upload"
+    )
+
+    if photo is not None:
+        img_bytes = photo.getvalue()
+        st.image(img_bytes, width=300)
+
+        if note_mode == "Handwritten/typed note":
+            if st.button("Extract text from photo"):
+                try:
+                    with st.spinner("Reading photo..."):
+                        text = image_to_text(img_bytes)
+                    st.session_state["note_ocr_text"] = text
+                except RuntimeError as e:
+                    st.error(str(e))
+
+            ocr_text = st.text_area(
+                "Extracted text (edit if needed before saving)",
+                value=st.session_state.get("note_ocr_text", ""), height=150,
+            )
+            if st.button("Save note"):
+                conn.execute(
+                    """INSERT OR REPLACE INTO client_notes
+                    (note_id, client_ref, created_at, logged_by, ocr_text, manual_note)
+                    VALUES (?,?,?,?,?,?)""",
+                    (str(uuid.uuid4())[:8], note_client, datetime.utcnow().isoformat(),
+                     user["username"], ocr_text, ""),
+                )
+                conn.commit()
+                st.success("Note saved.")
+                st.session_state.pop("note_ocr_text", None)
+                st.rerun()
+
+        else:
+            if not api_key_configured():
+                st.info(
+                    "Furniture ID isn't active yet — add a GOOGLE_VISION_API_KEY in your "
+                    "deployment secrets to turn this on. Until then, tag items by hand below."
+                )
+            elif st.button("Identify items in photo"):
+                with st.spinner("Identifying..."):
+                    found, err = identify_items(img_bytes)
+                if err:
+                    st.warning(err)
+                else:
+                    st.session_state["note_vision_labels"] = found
+
+            labels = st.session_state.get("note_vision_labels", [])
+            if labels:
+                st.write("Detected: " + ", ".join(f"{l['description']} ({l['score']:.0%})" for l in labels))
+
+            manual_tags = st.text_input("Items (comma-separated — edit/add to what was detected)",
+                                         value=", ".join(l["description"] for l in labels))
+            if st.button("Save photo note"):
+                conn.execute(
+                    """INSERT OR REPLACE INTO client_notes
+                    (note_id, client_ref, created_at, logged_by, ocr_text, manual_note)
+                    VALUES (?,?,?,?,?,?)""",
+                    (str(uuid.uuid4())[:8], note_client, datetime.utcnow().isoformat(),
+                     user["username"], "", manual_tags),
+                )
+                conn.commit()
+                st.success("Saved.")
+                st.session_state.pop("note_vision_labels", None)
+                st.rerun()
+
+    st.divider()
+    table_page("Saved Notes", "client_notes", ["client_ref", "ocr_text", "manual_note"], key="client_notes")
+
+with tab_sell:
+    st.subheader("Sell With Us — Client Item Intake")
+    st.caption("Take a picture of something a client wants to sell (RAM Insiders / resale).")
+
+    with st.form("resale_item"):
+        c1, c2 = st.columns(2)
+        with c1:
+            rs_client = st.text_input("Client name")
+            rs_desc = st.text_area("Description", height=80)
+        with c2:
+            rs_price = st.number_input("Asking price ($)", min_value=0.0, value=0.0, step=5.0)
+            rs_status = st.selectbox("Status", ["New intake", "Listed", "Sold", "Declined"])
+        rs_photo = st.camera_input("Photo of the item", key="rs_camera") or st.file_uploader(
+            "...or upload a photo", type=["jpg", "jpeg", "png"], key="rs_upload"
+        )
+        submitted = st.form_submit_button("Save item")
+
+    if submitted:
+        photo_b64 = base64.b64encode(rs_photo.getvalue()).decode() if rs_photo else ""
+        ai_labels = ""
+        if rs_photo and api_key_configured():
+            found, err = identify_items(rs_photo.getvalue())
+            if not err:
+                ai_labels = ", ".join(l["description"] for l in found)
+        conn.execute(
+            """INSERT OR REPLACE INTO resale_items
+            (item_id, client_name, description, asking_price, status, photo_base64, ai_labels, created_at, logged_by)
+            VALUES (?,?,?,?,?,?,?,?,?)""",
+            (str(uuid.uuid4())[:8], rs_client, rs_desc, f"{rs_price:.2f}", rs_status,
+             photo_b64, ai_labels, datetime.utcnow().isoformat(), user["username"]),
+        )
+        conn.commit()
+        st.success("Item saved." + (f" AI-detected: {ai_labels}" if ai_labels else ""))
+        st.rerun()
+
+    st.divider()
+    st.markdown("**Items on file**")
+    items = conn.execute(
+        "SELECT * FROM resale_items ORDER BY created_at DESC"
+    ).fetchall()
+    for it in items:
+        it = dict(it)
+        with st.expander(f"{it['client_name'] or 'Unknown'} — {it['description'][:40]} — ${it['asking_price']} ({it['status']})"):
+            if it["photo_base64"]:
+                st.image(base64.b64decode(it["photo_base64"]), width=250)
+            st.write(it["description"])
+            if it["ai_labels"]:
+                st.caption(f"AI tags: {it['ai_labels']}")
+            st.caption(f"Logged by {it['logged_by']} on {it['created_at'][:10]}")
 
 with tab_settings:
     st.subheader("My account")
