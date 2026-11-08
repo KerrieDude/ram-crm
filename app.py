@@ -76,7 +76,7 @@ def photo_input(key_prefix, label="Take a photo"):
 
 
 PAGES = ["Dashboard", "Clients", "Rolodex", "Date Book", "Daily Run", "Quotes", "Billing",
-         "Labor & Expenses", "Notes & Photos", "Sell With Us", "Settings"]
+         "Client Manager", "Labor & Expenses", "Notes & Photos", "Sell With Us", "Settings"]
 st.session_state.setdefault("nav_pills", "Dashboard")
 nav_page = st.pills("Navigate", PAGES, key="nav_pills")
 
@@ -967,6 +967,91 @@ if nav_page == "Billing":
         table_page("Invoices", "invoices", ["invoice_number", "client_name", "status"], key="invoices")
 
 
+if nav_page == "Client Manager":
+    st.subheader("Client Manager")
+    st.caption("Track who's paid, how, and what's still open across every invoice.")
+
+    PAYMENT_METHODS = ["Zelle", "Venmo", "PayPal", "Credit Card", "Check", "Cash", "Other"]
+
+    fc1, fc2, fc3, fc4 = st.columns(4)
+    with fc1:
+        status_filter = st.selectbox("Status", ["All", "Open (unpaid)", "Closed (paid)"])
+    with fc2:
+        method_filter = st.selectbox("Payment method", ["All"] + PAYMENT_METHODS)
+    with fc3:
+        date_from = st.date_input("From", value=None, key="cm_from")
+    with fc4:
+        date_to = st.date_input("To", value=None, key="cm_to")
+
+    name_filter = st.text_input("Client name contains", key="cm_name")
+
+    rows = conn.execute("SELECT * FROM invoices").fetchall()
+    rows = [dict(r) for r in rows]
+
+    if status_filter == "Open (unpaid)":
+        rows = [r for r in rows if (r["status"] or "unpaid") != "paid"]
+    elif status_filter == "Closed (paid)":
+        rows = [r for r in rows if r["status"] == "paid"]
+    if method_filter != "All":
+        rows = [r for r in rows if r["payment_method"] == method_filter]
+    if date_from:
+        rows = [r for r in rows if r["invoice_date"] and r["invoice_date"] >= str(date_from)]
+    if date_to:
+        rows = [r for r in rows if r["invoice_date"] and r["invoice_date"] <= str(date_to)]
+    if name_filter:
+        rows = [r for r in rows if name_filter.lower() in (r["client_name"] or "").lower()]
+
+    total_open = sum(float(r["total"] or 0) for r in rows if (r["status"] or "unpaid") != "paid")
+    total_closed = sum(float(r["total"] or 0) for r in rows if r["status"] == "paid")
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Invoices shown", len(rows))
+    m2.metric("Open ($)", f"${total_open:,.2f}")
+    m3.metric("Paid ($)", f"${total_closed:,.2f}")
+
+    st.divider()
+    if not rows:
+        st.caption("No invoices match these filters.")
+    for r in sorted(rows, key=lambda x: x["invoice_date"] or "", reverse=True):
+        is_paid = r["status"] == "paid"
+        icon = "✅" if is_paid else "🟡"
+        with st.expander(f"{icon} {r['invoice_number']} — {r['client_name'] or '(no client)'} "
+                          f"— ${float(r['total'] or 0):,.2f} — {r['invoice_date']}"):
+            st.write(f"**Address:** {r['client_address'] or '—'}")
+            st.write(f"**Subtotal:** ${float(r['subtotal'] or 0):,.2f}  ·  "
+                     f"**Tax:** ${float(r['tax_amount'] or 0):,.2f}  ·  "
+                     f"**Total:** ${float(r['total'] or 0):,.2f}")
+            st.write(f"**Status:** {'Paid' if is_paid else 'Open'}"
+                     + (f" on {r['paid_date']}" if is_paid and r["paid_date"] else ""))
+            st.write(f"**Payment method:** {r['payment_method'] or '—'}")
+            st.caption(f"Logged by {r['logged_by']} on {(r['created_at'] or '')[:10]}")
+
+            if not is_paid:
+                pc1, pc2, pc3 = st.columns(3)
+                with pc1:
+                    pm = st.selectbox("Mark paid via", PAYMENT_METHODS, key=f"pm_{r['invoice_id']}")
+                with pc2:
+                    pd_val = st.date_input("Paid date", value=date.today(), key=f"pd_{r['invoice_id']}")
+                with pc3:
+                    st.write("")
+                    if st.button("✅ Mark as paid", key=f"markpaid_{r['invoice_id']}", use_container_width=True):
+                        conn.execute(
+                            "UPDATE invoices SET status = ?, payment_method = ?, paid_date = ? WHERE invoice_id = ?",
+                            ("paid", pm, str(pd_val), r["invoice_id"]),
+                        )
+                        conn.commit()
+                        st.success("Marked paid.")
+                        st.rerun()
+            else:
+                if st.button("↩ Reopen (mark unpaid)", key=f"reopen_{r['invoice_id']}"):
+                    conn.execute(
+                        "UPDATE invoices SET status = ?, payment_method = ?, paid_date = ? WHERE invoice_id = ?",
+                        ("unpaid", None, None, r["invoice_id"]),
+                    )
+                    conn.commit()
+                    st.rerun()
+
+
 if nav_page == "Labor & Expenses":
     st.subheader("Labor & Other Expenses")
 
@@ -1212,58 +1297,66 @@ if nav_page == "Sell With Us":
             st.caption(f"Logged by {it['logged_by']} on {it['created_at'][:10]}")
 
 if nav_page == "Settings":
-    st.subheader("My account")
-    with st.form("change_my_password"):
-        st.caption(f"Signed in as `{user['username']}`")
-        new_pw = st.text_input("New password", type="password")
-        new_pw2 = st.text_input("Confirm new password", type="password")
-        if st.form_submit_button("Change my password"):
-            if not new_pw:
-                st.error("Password can't be empty.")
-            elif new_pw != new_pw2:
-                st.error("Passwords don't match.")
-            else:
-                set_password(conn, user["username"], hash_pw(new_pw))
-                st.success("Password changed.")
+    sections = ["Account", "Users", "Rates", "Email (SMTP)", "System"] if user["role"] == "admin" else ["Account"]
+    st.session_state.setdefault("settings_section", "Account")
+    section = st.pills("Settings", sections, key="settings_section")
 
-    if user["role"] == "admin":
-        st.divider()
+    if section == "Account":
+        st.subheader("My account")
+        with st.form("change_my_password"):
+            st.caption(f"Signed in as `{user['username']}`")
+            pc1, pc2 = st.columns(2)
+            with pc1:
+                new_pw = st.text_input("New password", type="password")
+            with pc2:
+                new_pw2 = st.text_input("Confirm new password", type="password")
+            if st.form_submit_button("Change my password"):
+                if not new_pw:
+                    st.error("Password can't be empty.")
+                elif new_pw != new_pw2:
+                    st.error("Passwords don't match.")
+                else:
+                    set_password(conn, user["username"], hash_pw(new_pw))
+                    st.success("Password changed.")
+
+    if section == "Users":
         st.subheader("Manage users")
-
         users = list_users(conn)
         usernames = [u["username"] for u in users]
         st.dataframe(pd.DataFrame(users), use_container_width=True, hide_index=True)
 
-        st.markdown("**Edit an existing user**")
-        with st.form("edit_user"):
-            target = st.selectbox("User", usernames) if usernames else None
-            edit_dn = st.text_input("Display name")
-            edit_role = st.selectbox("Role", ["staff", "admin"])
-            edit_pw = st.text_input("New password (leave blank to keep current)", type="password")
-            if st.form_submit_button("Save changes") and target:
-                current = next(u for u in users if u["username"] == target)
-                pw_hash = hash_pw(edit_pw) if edit_pw else conn.execute(
-                    "SELECT password_hash FROM users WHERE username = ?", (target,)
-                ).fetchone()["password_hash"]
-                upsert_user(conn, target, pw_hash, edit_dn or current["display_name"], edit_role)
-                st.success(f"User '{target}' updated.")
-                st.rerun()
-
-        st.markdown("**Add a new user**")
-        with st.form("add_user"):
-            nu = st.text_input("New username")
-            np_ = st.text_input("New password", type="password")
-            dn = st.text_input("Display name")
-            role = st.selectbox("Role", ["staff", "admin"], key="new_user_role")
-            if st.form_submit_button("Create user"):
-                if not nu or not np_:
-                    st.error("Username and password are required.")
-                else:
-                    upsert_user(conn, nu, hash_pw(np_), dn, role)
-                    st.success(f"User '{nu}' created.")
+        uc1, uc2 = st.columns(2)
+        with uc1:
+            st.markdown("**Edit an existing user**")
+            with st.form("edit_user"):
+                target = st.selectbox("User", usernames) if usernames else None
+                edit_dn = st.text_input("Display name")
+                edit_role = st.selectbox("Role", ["staff", "admin"])
+                edit_pw = st.text_input("New password (leave blank to keep current)", type="password")
+                if st.form_submit_button("Save changes") and target:
+                    current = next(u for u in users if u["username"] == target)
+                    pw_hash = hash_pw(edit_pw) if edit_pw else conn.execute(
+                        "SELECT password_hash FROM users WHERE username = ?", (target,)
+                    ).fetchone()["password_hash"]
+                    upsert_user(conn, target, pw_hash, edit_dn or current["display_name"], edit_role)
+                    st.success(f"User '{target}' updated.")
                     st.rerun()
+        with uc2:
+            st.markdown("**Add a new user**")
+            with st.form("add_user"):
+                nu = st.text_input("New username")
+                np_ = st.text_input("New password", type="password")
+                dn = st.text_input("Display name")
+                role = st.selectbox("Role", ["staff", "admin"], key="new_user_role")
+                if st.form_submit_button("Create user"):
+                    if not nu or not np_:
+                        st.error("Username and password are required.")
+                    else:
+                        upsert_user(conn, nu, hash_pw(np_), dn, role)
+                        st.success(f"User '{nu}' created.")
+                        st.rerun()
 
-        st.divider()
+    if section == "Rates":
         st.subheader("Rates (used by the auto-quote calculators)")
         rates_now = get_rates(conn)
         with st.form("edit_rates"):
@@ -1279,7 +1372,44 @@ if nav_page == "Settings":
                 st.success("Rates updated.")
                 st.rerun()
 
-        st.divider()
+    if section == "Email (SMTP)":
+        st.subheader("Email (SMTP) configuration")
+        st.caption(
+            "Sending invoices automatically needs a real SMTP account (Gmail, SendGrid, your host's mail "
+            "server, etc.). Save the settings here now — actually wiring up automated sending is a separate "
+            "step we haven't built yet; the Billing tab's email button currently opens your own email client "
+            "with the invoice pre-filled instead."
+        )
+        existing = {r["setting_key"]: r["setting_value"] for r in conn.execute("SELECT * FROM app_settings").fetchall()}
+        with st.form("smtp_settings"):
+            sc1, sc2 = st.columns(2)
+            with sc1:
+                smtp_host = st.text_input("SMTP host", value=existing.get("smtp_host", ""))
+                smtp_port = st.text_input("SMTP port", value=existing.get("smtp_port", "587"))
+                smtp_username = st.text_input("SMTP username", value=existing.get("smtp_username", ""))
+            with sc2:
+                smtp_password = st.text_input(
+                    "SMTP password",
+                    type="password",
+                    placeholder="•••••••• (leave blank to keep current)" if existing.get("smtp_password") else "",
+                )
+                smtp_from_email = st.text_input("From email", value=existing.get("smtp_from_email", ""))
+                smtp_from_name = st.text_input("From name", value=existing.get("smtp_from_name", "Run Around Melissa"))
+            if st.form_submit_button("Save email settings"):
+                to_save = {
+                    "smtp_host": smtp_host, "smtp_port": smtp_port, "smtp_username": smtp_username,
+                    "smtp_from_email": smtp_from_email, "smtp_from_name": smtp_from_name,
+                }
+                if smtp_password:
+                    to_save["smtp_password"] = smtp_password
+                for k, v in to_save.items():
+                    conn.execute("INSERT OR REPLACE INTO app_settings (setting_key, setting_value) VALUES (?,?)", (k, v))
+                conn.commit()
+                st.success("Email settings saved.")
+                st.rerun()
+
+    if section == "System":
+        st.subheader("System")
         st.markdown("**Database location**")
         st.code("Postgres (cloud)" if USING_POSTGRES else DB_PATH)
 

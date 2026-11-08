@@ -153,6 +153,11 @@ CREATE TABLE IF NOT EXISTS invoices (
     logged_by TEXT
 );
 
+CREATE TABLE IF NOT EXISTS app_settings (
+    setting_key TEXT PRIMARY KEY,
+    setting_value TEXT
+);
+
 CREATE TABLE IF NOT EXISTS resale_items (
     item_id TEXT PRIMARY KEY,
     client_name TEXT,
@@ -169,6 +174,8 @@ CREATE TABLE IF NOT EXISTS resale_items (
 
 MIGRATIONS = [
     "ALTER TABLE client_notes ADD COLUMN photo_base64 TEXT",
+    "ALTER TABLE invoices ADD COLUMN payment_method TEXT",
+    "ALTER TABLE invoices ADD COLUMN paid_date TEXT",
 ]
 
 
