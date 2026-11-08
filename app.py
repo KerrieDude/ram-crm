@@ -606,18 +606,20 @@ if nav_page == "Daily Run":
 
     with ticket_col:
         st.markdown("**Ticket**")
-        last = st.session_state.get("last_saved_run")
         with st.container(key="ticket_box"):
-            if last:
-                st.caption(f"Last saved · {last['date']} · {last['start']}–{last['eod']}")
-                if last["jobs"]:
-                    for j, t in last["jobs"]:
-                        st.write(f"**{j}** — {t or '—'}")
-                else:
-                    st.caption("No jobs on this run.")
-                st.write(f"Crew: {last['crew'] or '—'}")
+            st.caption(f"{d} · {start}–{eod}")
+            live_jobs = [(j, t) for j, t in zip(job_vals, desc_vals) if j]
+            if live_jobs:
+                for j, t in live_jobs:
+                    st.write(f"**{j}** — {t or '—'}")
             else:
-                st.caption("Fill in the form and submit — the saved ticket will show here.")
+                st.caption("No jobs entered yet.")
+            live_crew = ", ".join(c for c in crew_vals if c)
+            st.write(f"Crew: {live_crew or '—'}")
+
+        last = st.session_state.get("last_saved_run")
+        if last:
+            st.caption(f"✅ Last saved to DB · {last['date']} · {last['start']}–{last['eod']}")
 
     st.divider()
     table_page("Daily Run Log", "jobs", ["job1", "job2", "crew1", "date"])
