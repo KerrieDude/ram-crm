@@ -22,7 +22,21 @@ class Conn:
         cur = self.raw.cursor()
         if USING_POSTGRES:
             sql = re.sub(r"\?", "%s", sql)
-            sql = sql.replace("INSERT OR REPLACE INTO", "INSERT INTO")
+            m = re.match(
+                r"\s*INSERT OR REPLACE INTO (\w+)\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)",
+                sql,
+                re.IGNORECASE,
+            )
+            if m:
+                table, cols_raw, _ = m.groups()
+                cols = [c.strip() for c in cols_raw.split(",")]
+                pk = cols[0]
+                placeholders = ", ".join(["%s"] * len(cols))
+                update_cols = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols[1:])
+                sql = (
+                    f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({placeholders}) "
+                    f"ON CONFLICT ({pk}) DO UPDATE SET {update_cols}"
+                )
         cur.execute(sql, params)
         return cur
 
@@ -82,6 +96,25 @@ CREATE TABLE IF NOT EXISTS jobs (
     job1 TEXT, job2 TEXT, job3 TEXT, job4 TEXT, job5 TEXT,
     crew1 TEXT, crew2 TEXT, crew3 TEXT, crew4 TEXT, crew5 TEXT,
     desc1 TEXT, desc2 TEXT, desc3 TEXT, desc4 TEXT, desc5 TEXT
+);
+
+CREATE TABLE IF NOT EXISTS save_dates (
+    save_id TEXT PRIMARY KEY,
+    date TEXT, client TEXT, type TEXT, address TEXT
+);
+
+CREATE TABLE IF NOT EXISTS rates (
+    rate_key TEXT PRIMARY KEY,
+    rate_value TEXT
+);
+
+CREATE TABLE IF NOT EXISTS quotes (
+    quote_id TEXT PRIMARY KEY,
+    kind TEXT,
+    client_name TEXT,
+    created_at TEXT,
+    details TEXT,
+    total TEXT
 );
 """
 

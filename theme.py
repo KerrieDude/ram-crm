@@ -1,0 +1,109 @@
+import base64
+import os
+import streamlit as st
+
+RAM_PINK = "#e832c0"
+RAM_DARK = "#1a1a1a"
+RAM_GREY = "#e5e5e5"
+
+
+def _b64(path):
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
+
+def inject_css():
+    st.markdown(
+        f"""
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Bangers&display=swap');
+
+        html, body, [class*="css"] {{
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }}
+
+        h1, h2, h3, .brand-font {{
+            font-family: 'Bangers', cursive !important;
+            letter-spacing: 0.5px;
+        }}
+
+        #MainMenu, footer, header[data-testid="stHeader"] {{ visibility: hidden; height: 0; }}
+        .block-container {{ padding-top: 0.5rem; max-width: 1200px; }}
+        section[data-testid="stSidebar"] {{ display: none; }}
+
+        .ram-topbar {{
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 10px 20px;
+            background: {RAM_GREY};
+            border-bottom: 1px solid #ddd;
+            margin: 0 -1rem 1.2rem -1rem;
+        }}
+        .ram-topbar img {{ height: 48px; }}
+        .ram-topbar .ram-title {{
+            font-family: 'Bangers', cursive;
+            font-size: 2rem;
+            color: {RAM_DARK};
+            letter-spacing: 0.5px;
+            flex: 1;
+        }}
+        .ram-topbar .ram-user {{
+            font-size: 0.85rem;
+            color: #555;
+            text-align: right;
+        }}
+
+        /* Nav tabs styled like the site's pink pill nav */
+        .stTabs [data-baseweb="tab-list"] {{
+            gap: 6px;
+            border-bottom: 2px solid {RAM_GREY};
+        }}
+        .stTabs [data-baseweb="tab"] {{
+            font-family: 'Bangers', cursive;
+            font-size: 1.1rem;
+            letter-spacing: 0.5px;
+            color: {RAM_DARK};
+            padding: 8px 18px;
+        }}
+        .stTabs [aria-selected="true"] {{
+            color: {RAM_PINK} !important;
+            border-bottom: 3px solid {RAM_PINK} !important;
+        }}
+        .stTabs [data-baseweb="tab"]:hover {{ color: {RAM_PINK}; }}
+
+        div.stButton > button, div.stFormSubmitButton > button {{
+            background: {RAM_PINK};
+            color: #fff;
+            border: none;
+            border-radius: 30px;
+            font-weight: 700;
+            padding: 6px 20px;
+        }}
+        div.stButton > button:hover, div.stFormSubmitButton > button:hover {{
+            background: #c228a8;
+            color: #fff;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def topbar(user):
+    logo_path = "assets/ram_mascot.png"
+    logo_html = ""
+    if os.path.exists(logo_path):
+        logo_html = f'<img src="data:image/png;base64,{_b64(logo_path)}" alt="RAM">'
+
+    sign_out_label = f"Signed in as {user['display_name']} ({user['role']})"
+    st.markdown(
+        f"""
+        <div class="ram-topbar">
+            {logo_html}
+            <div class="ram-title">Run Around Melissa &middot; CRM</div>
+            <div class="ram-user">{sign_out_label}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )

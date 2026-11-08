@@ -48,6 +48,32 @@ def main():
     print(f"rolodex: {n}")
 
     n = 0
+    for i, r in enumerate(rows(wb["save_date"], start=6)):
+        date_val = r[2] if len(r) > 2 else None
+        client = r[3] if len(r) > 3 else None
+        type_ = r[4] if len(r) > 4 else None
+        addr = r[5] if len(r) > 5 else None
+        if not (client or addr):
+            continue
+        conn.execute(
+            "INSERT OR REPLACE INTO save_dates (save_id, date, client, type, address) VALUES (?,?,?,?,?)",
+            (f"sd-{i}", s(date_val), s(client), s(type_), s(addr)),
+        )
+        n += 1
+    print(f"save_dates: {n}")
+
+    rate_rows = {
+        "crew_rate": 30, "management": 90, "fuel_surcharge": 6, "mpg": 10,
+        "environmental_fee": 5, "vehicle_licensing_fee": 2.5, "liability_insurance": 10,
+        "day_rate_penske": 50, "day_rate_uhaul": 85,
+        "mile_rate_penske": 0.19, "mile_rate_uhaul": 0.59,
+        "tax": 0.0625, "free_miles_uhaul": 75,
+    }
+    for k, v in rate_rows.items():
+        conn.execute("INSERT OR REPLACE INTO rates (rate_key, rate_value) VALUES (?,?)", (k, str(v)))
+    print(f"rates: {len(rate_rows)}")
+
+    n = 0
     for r in rows(wb["RAM_database"]):
         conn.execute(
             """INSERT OR REPLACE INTO jobs
