@@ -66,11 +66,15 @@ def photo_input(key_prefix, label="Take a photo"):
     return photo or uploaded
 
 
-(tab_dashboard, tab_calendar, tab_clients, tab_rolodex, tab_dates, tab_jobs, tab_quotes,
- tab_labor, tab_notes, tab_sell, tab_settings) = st.tabs(
-    ["Dashboard", "Calendar", "Clients", "Rolodex", "Date Book", "Daily Run",
-     "Quotes", "Labor & Expenses", "Notes & Photos", "Sell With Us", "Settings"]
-)
+PAGES = ["Dashboard", "Clients", "Rolodex", "Date Book", "Daily Run", "Quotes",
+         "Labor & Expenses", "Notes & Photos", "Sell With Us", "Settings"]
+st.session_state.setdefault("nav_pills", "Dashboard")
+nav_page = st.pills("Navigate", PAGES, key="nav_pills")
+
+
+def goto(page_name):
+    st.session_state["nav_pills"] = page_name
+    st.rerun()
 
 
 def table_page(title, table, search_cols, key=None):
@@ -88,7 +92,7 @@ def table_page(title, table, search_cols, key=None):
     st.caption(f"{len(df)} rows")
 
 
-with tab_dashboard:
+if nav_page == "Dashboard":
     today = date.today()
     st.subheader(f"Today — {today.strftime('%A, %B %d, %Y')}")
 
@@ -118,18 +122,9 @@ with tab_dashboard:
     else:
         st.caption("No save-the-date bookings for today.")
 
-    st.markdown("**Coming up — date, client, and job info**")
     upcoming = conn.execute(
         "SELECT * FROM save_dates WHERE date > ? ORDER BY date LIMIT 10", (str(today),)
     ).fetchall()
-    if upcoming:
-        df_up = pd.DataFrame([dict(r) for r in upcoming])[["date", "client", "type", "address"]]
-        df_up.columns = ["Date", "Client", "Job Type", "Address"]
-        st.dataframe(df_up, use_container_width=True, hide_index=True)
-    else:
-        st.caption("Nothing booked ahead yet.")
-
-    st.caption("Open the **Calendar** tab above for the full month view.")
 
     st.divider()
     st.markdown("**Get directions QR for a job address**")
@@ -149,8 +144,8 @@ with tab_dashboard:
             st.caption("Crew scans this on their phone to open turn-by-turn directions.")
             st.markdown(f"[Open in Google Maps]({directions_url(final_addr)})")
 
-with tab_calendar:
-    st.subheader("Calendar")
+    st.divider()
+    st.markdown("### Calendar")
 
     if "cal_year" not in st.session_state:
         st.session_state["cal_year"] = date.today().year
@@ -175,54 +170,95 @@ with tab_calendar:
             st.rerun()
     with nav_mid:
         st.markdown(
-            f"<h3 style='text-align:center'>{calendar.month_name[st.session_state['cal_month']]} "
-            f"{st.session_state['cal_year']}</h3>",
+            f"<h4 style='text-align:center'>{calendar.month_name[st.session_state['cal_month']]} "
+            f"{st.session_state['cal_year']}</h4>",
             unsafe_allow_html=True,
         )
 
     y, m = st.session_state["cal_year"], st.session_state["cal_month"]
     booked = conn.execute(
-        "SELECT date, client, type FROM save_dates WHERE date LIKE ?", (f"{y:04d}-{m:02d}-%",)
+        "SELECT date, client, type, address FROM save_dates WHERE date LIKE ?", (f"{y:04d}-{m:02d}-%",)
     ).fetchall()
-    run_days = conn.execute(
-        "SELECT date FROM jobs WHERE date LIKE ?", (f"{y:04d}-{m:02d}-%",)
+    run_rows = conn.execute(
+        "SELECT * FROM jobs WHERE date LIKE ?", (f"{y:04d}-{m:02d}-%",)
     ).fetchall()
     booked_by_day = {}
     for r in booked:
         d = r["date"][-2:]
-        booked_by_day.setdefault(d, []).append(f"{r['client'] or ''} ({r['type'] or ''})")
-    run_day_set = {r["date"][-2:] for r in run_days}
+        booked_by_day.setdefault(d, []).append(dict(r))
+    run_by_day = {}
+    for r in run_rows:
+        d = r["date"][-2:]
+        run_by_day.setdefault(d, []).append(dict(r))
 
     weeks = calendar.monthcalendar(y, m)
-    header_cols = st.columns(7)
-    for col, wd in zip(header_cols, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]):
-        col.markdown(f"**{wd}**")
+    with st.container(key="cal_grid"):
+        header_cols = st.columns(7)
+        for col, wd in zip(header_cols, ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]):
+            col.markdown(f"<div style='text-align:center;font-size:0.75rem;color:#888'>{wd}</div>",
+                         unsafe_allow_html=True)
 
-    is_today = (y == date.today().year and m == date.today().month)
-    for week in weeks:
-        cols = st.columns(7)
-        for col, day in zip(cols, week):
-            if day == 0:
-                col.markdown("&nbsp;", unsafe_allow_html=True)
-                continue
-            dstr = f"{day:02d}"
-            label = f"**{day}**" if (is_today and day == date.today().day) else str(day)
-            notes = booked_by_day.get(dstr, [])
-            marker = " 📦" if dstr in run_day_set else ""
-            cell = label + marker
-            if notes:
-                cell += "<br><span style='color:#e832c0;font-size:0.75rem'>" + "<br>".join(notes) + "</span>"
-            col.markdown(cell, unsafe_allow_html=True)
+        is_today = (y == date.today().year and m == date.today().month)
+        for week in weeks:
+            cols = st.columns(7)
+            for col, day in zip(cols, week):
+                if day == 0:
+                    col.markdown("&nbsp;")
+                    continue
+                dstr = f"{day:02d}"
+                has_booking = dstr in booked_by_day
+                has_run = dstr in run_by_day
+                marker = ("📦" if has_run else "") + ("📅" if has_booking else "")
+                is_selected = st.session_state.get("selected_day") == f"{y:04d}-{m:02d}-{dstr}"
+                btn_label = f"{'🔸' if is_today and day == date.today().day else ''}{day}\n{marker}"
+                if col.button(btn_label, key=f"cal_btn_{y}_{m}_{dstr}",
+                              type="primary" if is_selected else "secondary",
+                              use_container_width=True):
+                    st.session_state["selected_day"] = f"{y:04d}-{m:02d}-{dstr}"
+                    st.rerun()
 
-    st.caption("📦 = jobs logged that day. Pink text = save-the-date bookings.")
+    st.caption("📦 = jobs logged that day · 📅 = save-the-date booking. Tap a day for details.")
 
-with tab_clients:
+    selected = st.session_state.get("selected_day")
+    if selected:
+        sel_date = datetime.strptime(selected, "%Y-%m-%d").date()
+        st.markdown(f"**{sel_date.strftime('%A, %B %d, %Y')}**")
+        sel_jobs = conn.execute("SELECT * FROM jobs WHERE date = ?", (selected,)).fetchall()
+        sel_bookings = conn.execute("SELECT * FROM save_dates WHERE date = ?", (selected,)).fetchall()
+        if sel_jobs:
+            st.markdown("*Jobs on the run:*")
+            st.dataframe(pd.DataFrame([dict(r) for r in sel_jobs]), use_container_width=True, hide_index=True)
+        if sel_bookings:
+            st.markdown("*Bookings:*")
+            df_sel = pd.DataFrame([dict(r) for r in sel_bookings])[["date", "client", "type", "address"]]
+            df_sel.columns = ["Date", "Client", "Job Type", "Address"]
+            st.dataframe(df_sel, use_container_width=True, hide_index=True)
+        if not sel_jobs and not sel_bookings:
+            st.caption("Nothing on the books for this day.")
+
+        st.markdown("**Jump to:**")
+        h1, h2, h3, h4 = st.columns(4)
+        with h1:
+            if st.button("➕ Log a job", use_container_width=True):
+                goto("Daily Run")
+        with h2:
+            if st.button("📅 Add a booking", use_container_width=True):
+                goto("Date Book")
+        with h3:
+            if st.button("💰 Make a quote", use_container_width=True):
+                goto("Quotes")
+        with h4:
+            if st.button("✖ Clear selection", use_container_width=True):
+                st.session_state.pop("selected_day", None)
+                st.rerun()
+
+if nav_page == "Clients":
     table_page("Clients", "clients", ["client_name", "first", "last", "street", "city", "email", "cell"])
 
-with tab_rolodex:
+if nav_page == "Rolodex":
     table_page("Rolodex (Realtors / Contacts)", "rolodex", ["contact_name", "firm", "email", "cell", "city"])
 
-with tab_dates:
+if nav_page == "Date Book":
     st.subheader("Save the Date — Date Book")
     with st.form("add_save_date"):
         c1, c2, c3 = st.columns(3)
@@ -243,7 +279,7 @@ with tab_dates:
             st.rerun()
     table_page("Upcoming / Booked Dates", "save_dates", ["client", "type", "address", "date"])
 
-with tab_jobs:
+if nav_page == "Daily Run":
     st.subheader("Log today's run")
     with st.form("add_daily_run"):
         c1, c2, c3 = st.columns(3)
@@ -274,7 +310,7 @@ with tab_jobs:
     st.divider()
     table_page("Daily Run Log", "jobs", ["job1", "job2", "crew1", "date"])
 
-with tab_quotes:
+if nav_page == "Quotes":
     st.subheader("Quotes")
     quote_pick = st.pills("Quote type", ["Move", "Hunni-Do", "Painting", "Carpentry", "Landscaping"],
                           default="Move", key="quote_pick")
@@ -553,7 +589,7 @@ with tab_quotes:
         table_page("Saved Landscaping Quotes", "quotes", ["client_name", "kind", "details"], key="landscaping_quotes")
 
 
-with tab_labor:
+if nav_page == "Labor & Expenses":
     st.subheader("Labor & Other Expenses")
 
     st.markdown("**Log an expense**")
@@ -657,7 +693,7 @@ with tab_labor:
             if os.path.exists(logo_path):
                 st.image(logo_path, width=140, caption=brand)
 
-with tab_notes:
+if nav_page == "Notes & Photos":
     st.subheader("Notes & Photos")
     st.caption(
         "Take a photo of a handwritten or typed note and pull the text out automatically, "
@@ -742,7 +778,7 @@ with tab_notes:
     st.divider()
     table_page("Saved Notes", "client_notes", ["client_ref", "ocr_text", "manual_note"], key="client_notes")
 
-with tab_sell:
+if nav_page == "Sell With Us":
     st.subheader("Sell With Us — Client Item Intake")
     st.caption("Take a picture of something a client wants to sell (RAM Insiders / resale).")
 
@@ -797,7 +833,7 @@ with tab_sell:
                 st.caption(f"AI tags: {it['ai_labels']}")
             st.caption(f"Logged by {it['logged_by']} on {it['created_at'][:10]}")
 
-with tab_settings:
+if nav_page == "Settings":
     st.subheader("My account")
     with st.form("change_my_password"):
         st.caption(f"Signed in as `{user['username']}`")

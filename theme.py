@@ -31,6 +31,12 @@ def inject_css():
         .block-container {{ padding-top: 0.5rem; max-width: 1200px; }}
         section[data-testid="stSidebar"] {{ display: none; }}
 
+        /* Never let any one oversized element force the whole page to scroll sideways --
+           this is what was showing up as "huge margins" (really: scrolled-past overflow) */
+        html, body {{ max-width: 100vw; overflow-x: hidden; }}
+        .main, .block-container {{ overflow-x: hidden; max-width: 100vw; }}
+        * {{ word-wrap: break-word; overflow-wrap: break-word; }}
+
         .ram-topbar {{
             display: flex;
             align-items: center;
@@ -115,6 +121,33 @@ def inject_css():
             .ram-topbar .ram-title {{ font-size: 1.3rem; }}
             .ram-topbar .ram-user {{ width: 100%; text-align: left; font-size: 0.75rem; }}
             .stTabs [data-baseweb="tab"] {{ font-size: 0.95rem; padding: 6px 12px; }}
+        }}
+
+        /* Top nav (pills) -- horizontally scrollable so it never pushes the page wide */
+        div[data-testid="stPills"] {{
+            overflow-x: auto;
+            flex-wrap: nowrap !important;
+            -webkit-overflow-scrolling: touch;
+        }}
+        div[data-testid="stPills"] * {{
+            white-space: nowrap;
+        }}
+
+        /* Calendar day-picker grid: keep 7 columns tight enough to never overflow a phone */
+        .st-key-cal_grid div[data-testid="stHorizontalBlock"] {{
+            gap: 4px !important;
+        }}
+        .st-key-cal_grid div[data-testid="column"] {{
+            min-width: 0 !important;
+            width: auto !important;
+        }}
+        .st-key-cal_grid div.stButton > button {{
+            padding: 2px 0 !important;
+            min-height: 36px !important;
+            font-size: 0.75rem !important;
+            line-height: 1.1 !important;
+            white-space: pre-line !important;
+            border-radius: 8px !important;
         }}
         </style>
         """,
