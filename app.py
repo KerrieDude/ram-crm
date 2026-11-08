@@ -3,6 +3,8 @@ import pandas as pd
 import streamlit as st
 
 import calendar
+import random
+import string
 import uuid
 from datetime import date, datetime
 
@@ -42,6 +44,13 @@ conn = get_conn()
 def get_rates(conn):
     rows = conn.execute("SELECT rate_key, rate_value FROM rates").fetchall()
     return {r["rate_key"]: float(r["rate_value"]) for r in rows}
+
+
+def gen_id():
+    """Matches the original spreadsheet's client/contact ID style: a short random
+    7-character mixed-case alphanumeric code (e.g. evKAqT8, eDhCAPh)."""
+    alphabet = string.ascii_letters + string.digits
+    return "".join(random.choices(alphabet, k=7))
 
 
 def photo_input(key_prefix, label="Take a photo"):
@@ -257,9 +266,72 @@ if nav_page == "Dashboard":
         st.caption("📦 = jobs logged · 📅 = booking. Tap a day for details.")
 
 if nav_page == "Clients":
+    st.subheader("Add a client")
+    with st.form("add_client"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            cl_first = st.text_input("First name")
+            cl_last = st.text_input("Last name")
+            cl_cell = st.text_input("Cell")
+        with c2:
+            cl_email = st.text_input("Email")
+            cl_street = st.text_input("Street")
+            cl_city = st.text_input("City")
+        with c3:
+            cl_st = st.text_input("State", value="NJ")
+            cl_zip = st.text_input("Zip")
+            cl_realtor = st.text_input("Realtor")
+        cl_comments = st.text_area("Comments", height=80)
+        if st.form_submit_button("Add client"):
+            new_id = gen_id()
+            client_name = f"{cl_first} {cl_last}".strip()
+            conn.execute(
+                """INSERT OR REPLACE INTO clients
+                (client_id, first, last, client_name, street, city, st, zip, cell, email, realtor, comments)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (new_id, cl_first, cl_last, client_name, cl_street, cl_city, cl_st, cl_zip,
+                 cl_cell, cl_email, cl_realtor, cl_comments),
+            )
+            conn.commit()
+            st.success(f"Client added — id: {new_id}")
+            st.rerun()
+
+    st.divider()
     table_page("Clients", "clients", ["client_name", "first", "last", "street", "city", "email", "cell"])
 
 if nav_page == "Rolodex":
+    st.subheader("Add a contact")
+    with st.form("add_contact"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            rd_type = st.selectbox("Contact type", ["realtor", "scrap", "dealer", "stager", "floor",
+                                                      "handiman", "plumber", "resale dealer", "other"])
+            rd_first = st.text_input("First name", key="rd_first")
+            rd_last = st.text_input("Last name", key="rd_last")
+        with c2:
+            rd_cell = st.text_input("Cell", key="rd_cell")
+            rd_email = st.text_input("Email", key="rd_email")
+            rd_firm = st.text_input("Firm")
+        with c3:
+            rd_city = st.text_input("City", key="rd_city")
+            rd_st = st.text_input("State", value="NJ", key="rd_st")
+            rd_link = st.text_input("Link")
+        rd_comments = st.text_area("Comments", height=80, key="rd_comments")
+        if st.form_submit_button("Add contact"):
+            new_id = gen_id()
+            contact_name = f"{rd_first} {rd_last}".strip()
+            conn.execute(
+                """INSERT OR REPLACE INTO rolodex
+                (contact_id, contact_type, first, last, contact_name, cell, email, link, firm, city, st, comments)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (new_id, rd_type, rd_first, rd_last, contact_name, rd_cell, rd_email, rd_link,
+                 rd_firm, rd_city, rd_st, rd_comments),
+            )
+            conn.commit()
+            st.success(f"Contact added — id: {new_id}")
+            st.rerun()
+
+    st.divider()
     table_page("Rolodex (Realtors / Contacts)", "rolodex", ["contact_name", "firm", "email", "cell", "city"])
 
 if nav_page == "Date Book":
