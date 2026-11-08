@@ -653,7 +653,17 @@ if nav_page == "Quotes":
             "which drives the crew-hours estimate below. Rates come from Settings → Rates."
         )
 
-        mq_client = st.text_input("Client name", key="mq_client")
+        mqc1, mqc2 = st.columns(2)
+        with mqc1:
+            mq_client = st.text_input("Client name", key="mq_client")
+            mq_phone = st.text_input("Phone no.", key="mq_phone")
+        with mqc2:
+            mq_move_out_date = st.date_input("Move out date", value=date.today(), key="mq_move_out_date")
+        mqo1, mqo2 = st.columns(2)
+        with mqo1:
+            mq_origin = st.text_input("Origin address", key="mq_origin")
+        with mqo2:
+            mq_destination = st.text_input("Destination address", key="mq_destination")
 
         st.markdown("**1. Inventory**")
         total_cuft = 0.0
@@ -804,9 +814,97 @@ if nav_page == "Quotes":
             if item_counts:
                 st.caption("Inventory: " + "; ".join(f"{k} ×{v}" for k, v in item_counts.items()))
 
+            mq_ref_id = gen_id()
+            activity_rows = [
+                ("Supervision and Administration", "Supervisor", "1", "", rates["management"]),
+                ("Packing & Labor", "Crew", str(crew_size), f"{hours:.2f} hours", crew_cost),
+                (f"Truck & Mileage ({truck})", "Truck", "1", f"{total_miles:,.1f} mi", truck_cost),
+                ("Materials & Fees", "Fuel / Insurance / Fees", "", "", fees),
+            ]
+
+            with st.container(key="mq_estimate_sheet"):
+                eh1, eh2 = st.columns([3, 1])
+                with eh1:
+                    st.markdown('<div class="mq-est-title">Run Around Melissa Moving Estimate</div>', unsafe_allow_html=True)
+                with eh2:
+                    if os.path.exists("assets/ram_mascot.png"):
+                        st.image("assets/ram_mascot.png", width=70)
+
+                eb1, eb2 = st.columns(2)
+                with eb1:
+                    st.markdown(f'<div class="mq-est-bar">REFERENCE ID</div><div class="mq-est-val">{mq_ref_id}</div>', unsafe_allow_html=True)
+                with eb2:
+                    st.markdown(f'<div class="mq-est-bar">DATE ISSUE</div><div class="mq-est-val">{date.today().strftime("%m/%d/%Y")}</div>', unsafe_allow_html=True)
+
+                en1, en2, en3 = st.columns(3)
+                with en1:
+                    st.markdown(f'<div class="mq-est-bar">NAME</div><div class="mq-est-val">{mq_client or "—"}</div>', unsafe_allow_html=True)
+                with en2:
+                    st.markdown(f'<div class="mq-est-bar">PHONE NO.</div><div class="mq-est-val">{mq_phone or "—"}</div>', unsafe_allow_html=True)
+                with en3:
+                    st.markdown(f'<div class="mq-est-bar">MOVE OUT DATE</div><div class="mq-est-val">{mq_move_out_date.strftime("%m/%d/%Y")}</div>', unsafe_allow_html=True)
+
+                eo1, eo2 = st.columns(2)
+                with eo1:
+                    st.markdown(f'<div class="mq-est-bar">ORIGIN</div><div class="mq-est-val">{mq_origin or "—"}</div>', unsafe_allow_html=True)
+                with eo2:
+                    st.markdown(f'<div class="mq-est-bar">DESTINATION</div><div class="mq-est-val">{mq_destination or "—"}</div>', unsafe_allow_html=True)
+
+                st.markdown(
+                    '<div class="mq-est-tablehead">'
+                    '<span class="mq-est-th-act">Activity</span>'
+                    '<span class="mq-est-th-log">Logistic</span>'
+                    '<span class="mq-est-th-qty">Quantity</span>'
+                    '<span class="mq-est-th-unit">Unit</span>'
+                    '<span class="mq-est-th-amt">Amount (US$)</span>'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
+                for act, log, qty, unit, amt in activity_rows:
+                    st.markdown(
+                        '<div class="mq-est-row">'
+                        f'<span class="mq-est-th-act">{act}</span>'
+                        f'<span class="mq-est-th-log">{log}</span>'
+                        f'<span class="mq-est-th-qty">{qty}</span>'
+                        f'<span class="mq-est-th-unit">{unit}</span>'
+                        f'<span class="mq-est-th-amt">${amt:,.2f}</span>'
+                        '</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                st.markdown(
+                    '<div class="mq-est-note">NOTE: This estimate is valid only 30 days from date of issue.</div>',
+                    unsafe_allow_html=True,
+                )
+
+                et1, et2 = st.columns(2)
+                with et1:
+                    st.markdown(f'<div class="mq-est-bar">SUBTOTAL</div><div class="mq-est-val mq-est-total">${subtotal:,.2f}</div>', unsafe_allow_html=True)
+                with et2:
+                    st.markdown(f'<div class="mq-est-bar">TOTAL AMOUNT DUE</div><div class="mq-est-val mq-est-total">${total:,.2f}</div>', unsafe_allow_html=True)
+
+                st.markdown(
+                    '<div class="mq-est-policy-head">Contract Cancellation policy:</div>'
+                    '<div class="mq-est-policy-text">If the Client requests to cancel the contract 14 days prior to the start date of '
+                    'the contract, there will be no charges for cancellation. If the Client cancels the contract less than 14 days prior '
+                    'to the start date, the Client will be responsible for any costs that RAM has incurred against the said contract.</div>'
+                    '<div class="mq-est-policy-head">Acceptance:</div>'
+                    '<div class="mq-est-policy-text">I have read the above and agree to abide by the same. I will not hold RAM, or its '
+                    'associates or helpers, liable for accidents, injury, or theft on the property during the days of the move. RAM has '
+                    'its own insurance.<br>If any provision of this Agreement should later be deemed to be invalid or unenforceable, the '
+                    'balance of this Agreement shall remain in full force and effect. I have read the above and do agree to abide by the same.</div>',
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f'<div class="mq-est-sign">ACCEPTED AND AGREED to this: ________ day of ________________, {date.today().year}'
+                    '<br><br>Printed Client\'s Name: ______________________________________'
+                    '<br><br>Signed Client\'s Name: ______________________________________</div>',
+                    unsafe_allow_html=True,
+                )
+
             conn.execute(
                 "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
-                (str(uuid.uuid4())[:8], "move", mq_client, datetime.utcnow().isoformat(),
+                (mq_ref_id, "move", mq_client, datetime.utcnow().isoformat(),
                  f"{truck}, crew {crew_size}, {hours:.2f}h, {total_miles:.1f}mi, {total_cuft:.0f}cuft", f"{total:.2f}"),
             )
             conn.commit()

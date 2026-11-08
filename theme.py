@@ -241,6 +241,88 @@ def inject_css():
             font-size: 0.78rem !important;
         }}
 
+        /* Moving Estimate sheet -- RAM-branded, matches the real estimate template */
+        .st-key-mq_estimate_sheet {{
+            border: 1px solid #444;
+            border-radius: 10px;
+            padding: 1.2rem;
+            background: #141414;
+            margin-top: 0.8rem;
+        }}
+        .mq-est-title {{
+            font-family: 'Bangers', cursive;
+            font-size: 1.8rem;
+            color: {RAM_PINK};
+            letter-spacing: 0.5px;
+        }}
+        .mq-est-bar {{
+            background: #000;
+            color: #fff;
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            padding: 3px 8px;
+            margin-top: 8px;
+        }}
+        .mq-est-val {{
+            padding: 4px 8px;
+            font-size: 0.85rem;
+            color: #eee;
+            border: 1px solid #333;
+            border-top: none;
+        }}
+        .mq-est-total {{
+            color: {RAM_PINK};
+            font-weight: 700;
+        }}
+        .mq-est-tablehead, .mq-est-row {{
+            display: flex;
+            gap: 6px;
+            padding: 4px 6px;
+            font-size: 0.78rem;
+        }}
+        .mq-est-tablehead {{
+            background: #000;
+            color: #fff;
+            font-weight: 700;
+            margin-top: 12px;
+        }}
+        .mq-est-row {{
+            border-bottom: 1px solid #333;
+            color: #ddd;
+        }}
+        .mq-est-th-act {{ flex: 3; }}
+        .mq-est-th-log {{ flex: 2; }}
+        .mq-est-th-qty {{ flex: 1; text-align: center; }}
+        .mq-est-th-unit {{ flex: 1.5; text-align: center; }}
+        .mq-est-th-amt {{ flex: 1.5; text-align: right; }}
+        .mq-est-note {{
+            background: #222;
+            color: {RAM_PINK};
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 6px 8px;
+            margin-top: 10px;
+        }}
+        .mq-est-policy-head {{
+            color: {RAM_PINK};
+            font-weight: 700;
+            font-size: 0.85rem;
+            margin-top: 14px;
+        }}
+        .mq-est-policy-text {{
+            color: #ccc;
+            font-size: 0.75rem;
+            line-height: 1.4;
+            margin-top: 2px;
+        }}
+        .mq-est-sign {{
+            color: #ddd;
+            font-size: 0.8rem;
+            margin-top: 16px;
+            line-height: 1.8;
+        }}
+
         .st-key-ticket_box {{
             border: 1px dashed {RAM_PINK};
             border-radius: 8px;
