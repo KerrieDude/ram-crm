@@ -356,33 +356,49 @@ if nav_page == "Date Book":
     table_page("Upcoming / Booked Dates", "save_dates", ["client", "type", "address", "date"])
 
 if nav_page == "Daily Run":
-    st.subheader("Log today's run")
-    with st.form("add_daily_run"):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            d = st.date_input("Date", key="run_date")
-            start = st.time_input("Start")
-        with c2:
-            eod = st.time_input("End of day")
-            crew1 = st.text_input("Crew 1 initials")
-        with c3:
-            crew2 = st.text_input("Crew 2 initials")
-            crew3 = st.text_input("Crew 3 initials")
-        job1 = st.text_input("Job 1 (site / client)")
-        desc1 = st.text_input("Job 1 type (move / hunni-do / cleanout / spec)")
-        job2 = st.text_input("Job 2 (site / client)", value="")
-        desc2 = st.text_input("Job 2 type", value="")
-        if st.form_submit_button("Log run"):
+    st.subheader("Run Around Daily")
+
+    with st.container(key="daily_run_grid"):
+        with st.form("add_daily_run"):
+            top1, top2, top3 = st.columns(3)
+            with top1:
+                d = st.date_input("Date", key="run_date")
+            with top2:
+                start = st.time_input("Start")
+            with top3:
+                eod = st.time_input("EOD")
+
+            st.markdown("**Jobs**")
+            job_vals, desc_vals = [], []
+            for i in range(1, 6):
+                jc1, jc2 = st.columns([3, 2])
+                with jc1:
+                    job_vals.append(st.text_input(f"Job {i} — site/client", key=f"dr_job{i}", label_visibility="collapsed" if i > 1 else "visible", placeholder=f"Job {i} — site/client"))
+                with jc2:
+                    desc_vals.append(st.text_input(f"Type {i}", key=f"dr_desc{i}", label_visibility="collapsed" if i > 1 else "visible", placeholder="move / hunni-do / cleanout / spec"))
+
+            st.markdown("**Crew**")
+            crew_cols = st.columns(5)
+            crew_vals = []
+            for i, col in enumerate(crew_cols, start=1):
+                with col:
+                    crew_vals.append(st.text_input(f"Crew {i}", key=f"dr_crew{i}", placeholder="initials"))
+
+            submitted = st.form_submit_button("💾 Save", use_container_width=True)
+
+        if submitted:
             conn.execute(
                 """INSERT OR REPLACE INTO jobs
-                (job_id, date, start, eod, job1, job2, crew1, crew2, crew3, desc1, desc2)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                (str(uuid.uuid4())[:8], str(d), str(start), str(eod), job1, job2,
-                 crew1, crew2, crew3, desc1, desc2),
+                (job_id, date, start, eod, job1, job2, job3, job4, job5,
+                 crew1, crew2, crew3, crew4, crew5, desc1, desc2, desc3, desc4, desc5)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (str(uuid.uuid4())[:8], str(d), str(start), str(eod),
+                 *job_vals, *crew_vals, *desc_vals),
             )
             conn.commit()
             st.success("Run logged.")
             st.rerun()
+
     st.divider()
     table_page("Daily Run Log", "jobs", ["job1", "job2", "crew1", "date"])
 

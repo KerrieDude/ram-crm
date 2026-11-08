@@ -143,6 +143,36 @@ def inject_css():
             }}
         }}
 
+        /* Daily Run: compact, spreadsheet-like input grid on laptop/desktop */
+        .st-key-daily_run_grid div[data-testid="stVerticalBlock"] {{
+            gap: 0.35rem !important;
+        }}
+        .st-key-daily_run_grid div[data-testid="stHorizontalBlock"] {{
+            gap: 0.5rem !important;
+        }}
+        .st-key-daily_run_grid div[data-testid="stTextInput"] input {{
+            padding: 4px 8px !important;
+            min-height: 32px !important;
+        }}
+        .st-key-daily_run_grid label {{
+            font-size: 0.78rem !important;
+            margin-bottom: 0 !important;
+        }}
+
+        /* On phone/tablet the same grid switches to a single, roomier input column */
+        @media (max-width: 768px) {{
+            .st-key-daily_run_grid div[data-testid="stHorizontalBlock"] {{
+                flex-direction: column !important;
+            }}
+            .st-key-daily_run_grid div[data-testid="column"] {{
+                width: 100% !important;
+            }}
+            .st-key-daily_run_grid div[data-testid="stTextInput"] input {{
+                min-height: 40px !important;
+                font-size: 1rem !important;
+            }}
+        }}
+
         /* Calendar day-picker grid: keep 7 columns tight enough to never overflow a phone */
         .st-key-cal_grid div[data-testid="stHorizontalBlock"] {{
             gap: 4px !important;
