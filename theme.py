@@ -275,6 +275,39 @@ def inject_css():
             color: {RAM_PINK};
             font-weight: 700;
         }}
+        .mq-est-checklist {{
+            column-count: 3;
+            column-gap: 18px;
+            margin: 6px 0 4px 0;
+            border: 1px solid #333;
+            padding: 8px 10px;
+        }}
+        .mq-est-checklist-room {{
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: {RAM_PINK};
+            text-transform: uppercase;
+            margin: 8px 0 2px 0;
+            break-inside: avoid;
+        }}
+        .mq-est-checklist-item {{
+            font-size: 0.78rem;
+            color: #ddd;
+            break-inside: avoid;
+            padding: 1px 0;
+        }}
+        .mq-est-checkbox {{
+            font-size: 0.9rem;
+            margin-right: 2px;
+        }}
+        .mq-est-checklist-qty {{
+            color: {RAM_PINK};
+            font-weight: 700;
+        }}
+        @media (max-width: 768px) {{
+            .mq-est-checklist {{ column-count: 1; }}
+        }}
+
         .mq-est-tablehead, .mq-est-row {{
             display: flex;
             gap: 6px;

@@ -850,6 +850,24 @@ if nav_page == "Quotes":
                 with eo2:
                     st.markdown(f'<div class="mq-est-bar">DESTINATION</div><div class="mq-est-val">{mq_destination or "—"}</div>', unsafe_allow_html=True)
 
+                if item_counts:
+                    st.markdown('<div class="mq-est-bar">ITEMS TO BE MOVED — CREW CHECKLIST</div>', unsafe_allow_html=True)
+                    by_room = {}
+                    for key, qty in item_counts.items():
+                        room, item = key.split(": ", 1)
+                        by_room.setdefault(room, []).append((item, qty))
+                    checklist_html = '<div class="mq-est-checklist">'
+                    for room, items in by_room.items():
+                        checklist_html += f'<div class="mq-est-checklist-room">{room}</div>'
+                        for item, qty in sorted(items):
+                            checklist_html += (
+                                f'<div class="mq-est-checklist-item">'
+                                f'<span class="mq-est-checkbox">☐</span> {item} '
+                                f'<span class="mq-est-checklist-qty">×{qty}</span></div>'
+                            )
+                    checklist_html += '</div>'
+                    st.markdown(checklist_html, unsafe_allow_html=True)
+
                 st.markdown(
                     '<div class="mq-est-tablehead">'
                     '<span class="mq-est-th-act">Activity</span>'
