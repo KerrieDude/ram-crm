@@ -45,8 +45,9 @@ def get_rates(conn):
 
 
 def photo_input(key_prefix, label="Take a photo"):
-    """Camera only turns on (and asks for permission) after the user clicks a button —
-    it never auto-fires just from the tab being open."""
+    """Camera only turns on (and asks for permission) after the user clicks a button --
+    it never auto-fires just from the tab being open -- and is phone/tablet only (hidden
+    on desktop widths via CSS). The upload button is always available on every device."""
     show_key = f"{key_prefix}_show_camera"
     if show_key not in st.session_state:
         st.session_state[show_key] = False
@@ -57,7 +58,11 @@ def photo_input(key_prefix, label="Take a photo"):
     photo = None
     if st.session_state[show_key]:
         photo = st.camera_input("Camera", key=f"{key_prefix}_camera", label_visibility="collapsed")
-    uploaded = st.file_uploader("...or upload a photo instead", type=["jpg", "jpeg", "png"], key=f"{key_prefix}_upload")
+    st.markdown("**📁 Upload a photo**")
+    uploaded = st.file_uploader(
+        "Choose a photo file", type=["jpg", "jpeg", "png"], key=f"{key_prefix}_upload",
+        label_visibility="collapsed",
+    )
     return photo or uploaded
 
 
