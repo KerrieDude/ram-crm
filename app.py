@@ -658,17 +658,32 @@ if nav_page == "Quotes":
         st.markdown("**1. Inventory**")
         total_cuft = 0.0
         item_counts = {}
-        with st.expander("Select items by room", expanded=False):
-            for room, items in FURNITURE.items():
-                st.markdown(f"**{room}**")
-                cols = st.columns(3)
-                for i, (item, cuft) in enumerate(items.items()):
-                    with cols[i % 3]:
-                        qty = st.number_input(f"{item} ({cuft} cu ft)", min_value=0, value=0, step=1,
-                                               key=f"mq_item_{room}_{item}")
-                        if qty:
-                            item_counts[f"{room}: {item}"] = qty
-                            total_cuft += qty * cuft
+        rooms = list(FURNITURE.items())
+        with st.container(key="move_inventory_grid"):
+            for row_start in range(0, len(rooms), 4):
+                row_rooms = rooms[row_start:row_start + 4]
+                room_cols = st.columns(4)
+                for col, (room, items) in zip(room_cols, row_rooms):
+                    with col:
+                        st.markdown(f'<div class="mq-room-head">{room.upper()}</div>', unsafe_allow_html=True)
+                        hc1, hc2, hc3 = st.columns([3, 1, 1])
+                        hc1.markdown('<span class="mq-col-label">ITEM</span>', unsafe_allow_html=True)
+                        hc2.markdown('<span class="mq-col-label">QTY</span>', unsafe_allow_html=True)
+                        hc3.markdown('<span class="mq-col-label">CU FT</span>', unsafe_allow_html=True)
+                        for item, cuft in items.items():
+                            ic1, ic2, ic3 = st.columns([3, 1, 1])
+                            ic1.markdown(f'<span class="mq-item-name">{item}</span>', unsafe_allow_html=True)
+                            with ic2:
+                                qty = st.number_input(
+                                    item, min_value=0, value=0, step=1,
+                                    key=f"mq_item_{room}_{item}", label_visibility="collapsed",
+                                )
+                            line_total = qty * cuft
+                            ic3.markdown(f'<span class="mq-cuft">{line_total:g}</span>' if qty else
+                                         f'<span class="mq-cuft mq-cuft-dim">{cuft:g}</span>', unsafe_allow_html=True)
+                            if qty:
+                                item_counts[f"{room}: {item}"] = qty
+                                total_cuft += line_total
 
         total_weight = total_cuft * WEIGHT_FACTOR_LBS_PER_CUFT
         c1, c2 = st.columns(2)

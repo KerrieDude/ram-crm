@@ -179,6 +179,56 @@ def inject_css():
             }}
         }}
 
+        /* Move Quote inventory: tight spreadsheet-style item grid, 4 room-columns wide */
+        .st-key-move_inventory_grid div[data-testid="stVerticalBlock"] {{
+            gap: 0.1rem !important;
+        }}
+        .st-key-move_inventory_grid div[data-testid="stHorizontalBlock"] {{
+            gap: 0.3rem !important;
+            align-items: center !important;
+        }}
+        .st-key-move_inventory_grid div[data-testid="stNumberInput"] input {{
+            padding: 1px 4px !important;
+            min-height: 22px !important;
+            height: 22px !important;
+            font-size: 0.72rem !important;
+            text-align: center;
+        }}
+        .st-key-move_inventory_grid div[data-testid="stNumberInput"] button {{
+            display: none !important;
+        }}
+        .mq-room-head {{
+            font-family: 'Bangers', cursive;
+            background: {RAM_PINK};
+            color: #fff;
+            font-size: 0.85rem;
+            padding: 2px 6px;
+            margin: 10px 0 2px 0;
+            border-radius: 3px;
+            letter-spacing: 0.5px;
+        }}
+        .mq-col-label {{
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: #888;
+            text-transform: uppercase;
+        }}
+        .mq-item-name {{
+            font-size: 0.72rem;
+            color: #ddd;
+            line-height: 22px;
+        }}
+        .mq-cuft {{
+            font-size: 0.72rem;
+            color: {RAM_PINK};
+            font-weight: 700;
+            line-height: 22px;
+        }}
+        .mq-cuft-dim {{
+            color: #666;
+            font-weight: 400;
+        }}
+
         .st-key-ticket_box {{
             border: 1px dashed {RAM_PINK};
             border-radius: 8px;
