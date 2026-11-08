@@ -12,7 +12,9 @@ from theme import inject_css, topbar
 from qr import directions_qr_png_bytes, directions_url
 from inventory import FURNITURE, WEIGHT_FACTOR_LBS_PER_CUFT
 from packing_calc import lookup as packing_lookup, BEDROOM_OPTIONS, PERSON_OPTIONS, TIERS
-from labor_ref import CREW_HOURS, HOME_SIZES, CREW_SIZES, RENT_A_CRATE, RENT_A_CRATE_UNIT, REDI_BOX, REDI_BOX_UNIT, TRUCKS
+from labor_ref import (CREW_HOURS, HOME_SIZES, CREW_SIZES, RENT_A_CRATE, RENT_A_CRATE_UNIT,
+                        REDI_BOX, REDI_BOX_UNIT, TRUCKS, RENTAL_BRANDS)
+from ikea_assembly import IKEA_ITEMS, BRANDS as IKEA_BRANDS, label as ikea_label
 
 st.set_page_config(
     page_title="RAM CRM",
@@ -283,6 +285,8 @@ with tab_move_quote:
         with c1:
             crew_size = st.number_input("Crew size", min_value=1, value=3)
             truck = st.selectbox("Truck", ["Penske", "U-Haul"])
+            if truck in RENTAL_BRANDS and os.path.exists(RENTAL_BRANDS[truck]):
+                st.image(RENTAL_BRANDS[truck], width=100)
         with c2:
             stairs = st.number_input("Stairs (flights)", min_value=0, value=0)
             elevator = st.checkbox("Elevator at origin or destination")
@@ -358,12 +362,32 @@ with tab_move_quote:
 with tab_hunni_quote:
     st.subheader("Hunni-Do / Cleanout Quote — Auto Estimate")
     rates = get_rates(conn)
+
+    st.markdown("**IKEA / furniture assembly builder**")
+    st.caption("Pick items to assemble — this fills in the suggested hours and crew size below.")
+    brand_filter = st.multiselect("Filter by brand", IKEA_BRANDS)
+    items_to_show = [i for i in IKEA_ITEMS if not brand_filter or i["brand"] in brand_filter]
+    picked = st.multiselect(
+        "Items to assemble",
+        options=[ikea_label(i) for i in items_to_show],
+        key="hq_ikea_picked",
+    )
+    picked_items = [i for i in items_to_show if ikea_label(i) in picked]
+    suggested_hours = round(sum(i["hours"] for i in picked_items), 2)
+    suggested_crew = max((i["crew"] for i in picked_items), default=1)
+    if picked_items:
+        st.write(f"Suggested: **{suggested_hours} hours**, crew of **{suggested_crew}** "
+                 f"(based on {len(picked_items)} item(s) — assumes sequential assembly by one crew).")
+
     with st.form("hunni_quote"):
         c1, c2 = st.columns(2)
         with c1:
             hq_client = st.text_input("Client name", key="hq_client")
-            crew_size = st.number_input("Crew size", min_value=1, value=2, key="hq_crew")
-            hours = st.number_input("Estimated hours", min_value=0.5, value=3.0, step=0.5, key="hq_hours")
+            crew_size = st.number_input("Crew size", min_value=1, value=suggested_crew or 2, key="hq_crew")
+            hours = st.number_input(
+                "Estimated hours", min_value=0.5,
+                value=suggested_hours if suggested_hours > 0 else 3.0, step=0.5, key="hq_hours",
+            )
         with c2:
             disposal = st.number_input("Disposal / dump fee ($)", min_value=0.0, value=50.0)
             miles = st.number_input("Round-trip miles", min_value=0.0, value=10.0, key="hq_miles")
@@ -379,10 +403,11 @@ with tab_hunni_quote:
         st.write(f"Crew: ${crew_cost:,.2f} · Disposal: ${disposal:,.2f} · "
                  f"Mileage: ${mileage_cost:,.2f} · Tax: {rates['tax']*100:.2f}%")
 
+        assembly_note = f", assembly: {', '.join(picked)}" if picked else ""
         conn.execute(
             "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
             (str(uuid.uuid4())[:8], "hunni-do", hq_client, datetime.utcnow().isoformat(),
-             f"crew {crew_size}, {hours}h, disposal ${disposal}, {miles}mi", f"{total:.2f}"),
+             f"crew {crew_size}, {hours}h, disposal ${disposal}, {miles}mi{assembly_note}", f"{total:.2f}"),
         )
         conn.commit()
         st.success("Quote saved.")
@@ -588,6 +613,13 @@ with tab_labor:
              f"{truck_info['mpg']} mpg, {truck_info['tank_gal']} gal tank "
              f"(~{truck_info['range_mi']} mi range)")
     st.metric("Estimated fuel cost for this trip", f"${fuel_cost:,.2f}", f"{gallons_needed:.1f} gal")
+
+    st.markdown("**Preferred rental partners**")
+    logo_cols = st.columns(len(RENTAL_BRANDS))
+    for col, (brand, logo_path) in zip(logo_cols, RENTAL_BRANDS.items()):
+        with col:
+            if os.path.exists(logo_path):
+                st.image(logo_path, width=140, caption=brand)
 
 with tab_settings:
     st.subheader("My account")

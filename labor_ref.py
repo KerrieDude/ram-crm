@@ -54,3 +54,10 @@ TRUCKS = [
     {"name": "20' Truck", "home_size": "2 Bedroom Home / 3 Bedroom Apt", "tank_gal": 40, "mpg": 10, "range_mi": 400},
     {"name": "26' Truck", "home_size": "3-4 Bedroom Home", "tank_gal": 60, "mpg": 10, "range_mi": 600},
 ]
+
+# Rental brands RAM actually books trucks/vans through, with their corporate logo asset
+RENTAL_BRANDS = {
+    "Penske": "assets/penske_logo.png",
+    "U-Haul": "assets/uhaul_logo.png",
+    "Enterprise": "assets/enterprise_logo.png",
+}
