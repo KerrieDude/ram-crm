@@ -77,6 +77,9 @@ def photo_input(key_prefix, label="Take a photo"):
 
 PAGES = ["Dashboard", "Clients", "Rolodex", "Date Book", "Daily Run", "Quotes", "Billing",
          "Client Manager", "Labor & Expenses", "Notes & Photos", "Sell With Us", "Settings"]
+
+JOB_TYPES = ["", "Move", "Hunni-Do", "Cleanout", "Spec", "Painting", "Carpentry", "Landscaping", "Other"]
+NEW_CLIENT_SENTINEL = "+ New client (unscheduled)..."
 st.session_state.setdefault("nav_pills", "Dashboard")
 nav_page = st.pills("Navigate", PAGES, key="nav_pills")
 
@@ -497,40 +500,80 @@ if nav_page == "Daily Run":
 
     input_col, ticket_col = st.columns([3, 2], gap="large")
 
+    client_rows = conn.execute("SELECT client_id, client_name FROM clients ORDER BY client_name").fetchall()
+    client_names = [r["client_name"] for r in client_rows if r["client_name"]]
+    crew_rows = conn.execute(
+        "SELECT DISTINCT crew1 AS c FROM jobs WHERE crew1<>'' UNION "
+        "SELECT DISTINCT crew2 FROM jobs WHERE crew2<>'' UNION "
+        "SELECT DISTINCT crew3 FROM jobs WHERE crew3<>'' UNION "
+        "SELECT DISTINCT crew4 FROM jobs WHERE crew4<>'' UNION "
+        "SELECT DISTINCT crew5 FROM jobs WHERE crew5<>''"
+    ).fetchall()
+    crew_initials = sorted({(r["c"] or "").strip() for r in crew_rows if (r["c"] or "").strip()})
+    crew_options = ["", *crew_initials, "+ New..."]
+
     with input_col:
         with st.container(key="daily_run_grid"):
-            with st.form("add_daily_run"):
-                top1, top2, top3 = st.columns(3)
-                with top1:
-                    d = st.date_input("Date", key="run_date")
-                with top2:
-                    start = st.time_input("Start")
-                with top3:
-                    eod = st.time_input("EOD")
+            top1, top2, top3 = st.columns(3)
+            with top1:
+                d = st.date_input("Date", key="run_date")
+            with top2:
+                start = st.time_input("Start", key="dr_start")
+            with top3:
+                eod = st.time_input("EOD", key="dr_eod")
 
-                st.markdown("**Jobs**")
-                job_vals, desc_vals = [], []
-                for i in range(1, 6):
-                    jc1, jc2 = st.columns([3, 2])
-                    with jc1:
-                        job_vals.append(st.text_input(f"Job {i} — site/client", key=f"dr_job{i}", label_visibility="collapsed" if i > 1 else "visible", placeholder=f"Job {i} — site/client"))
-                    with jc2:
-                        desc_vals.append(st.text_input(f"Type {i}", key=f"dr_desc{i}", label_visibility="collapsed" if i > 1 else "visible", placeholder="move / hunni-do / cleanout / spec"))
+            st.markdown("**Jobs**")
+            job_vals, desc_vals = [], []
+            for i in range(1, 6):
+                jc1, jc2 = st.columns([3, 2])
+                with jc1:
+                    pick = st.selectbox(
+                        f"Job {i} — site/client", ["", *client_names, NEW_CLIENT_SENTINEL],
+                        key=f"dr_job{i}_pick",
+                        label_visibility="collapsed" if i > 1 else "visible",
+                    )
+                    if pick == NEW_CLIENT_SENTINEL:
+                        pick = st.text_input(
+                            f"New client name {i}", key=f"dr_job{i}_new",
+                            placeholder="New client — site/address", label_visibility="collapsed",
+                        )
+                    job_vals.append(pick)
+                with jc2:
+                    desc_vals.append(st.selectbox(
+                        f"Type {i}", JOB_TYPES, key=f"dr_desc{i}",
+                        label_visibility="collapsed" if i > 1 else "visible",
+                    ))
 
-                st.markdown("**Crew**")
-                crew_cols = st.columns(5)
-                crew_vals = []
-                for i, col in enumerate(crew_cols, start=1):
-                    with col:
-                        crew_vals.append(st.text_input(f"Crew {i}", key=f"dr_crew{i}", placeholder="initials"))
+            st.markdown("**Crew**")
+            crew_cols = st.columns(5)
+            crew_vals = []
+            for i, col in enumerate(crew_cols, start=1):
+                with col:
+                    pick = st.selectbox(f"Crew {i}", crew_options, key=f"dr_crew{i}_pick")
+                    if pick == "+ New...":
+                        pick = st.text_input(f"New crew {i}", key=f"dr_crew{i}_new",
+                                              placeholder="initials", label_visibility="collapsed")
+                    crew_vals.append(pick)
 
-                bc1, bc2 = st.columns(2)
-                with bc1:
-                    submit_db = st.form_submit_button("💾 Submit to DB", use_container_width=True)
-                with bc2:
-                    submit_invoice = st.form_submit_button("🧾 Create Invoice", use_container_width=True)
+            bc1, bc2 = st.columns(2)
+            with bc1:
+                submit_db = st.button("💾 Submit to DB", key="dr_submit_db", use_container_width=True)
+            with bc2:
+                submit_invoice = st.button("🧾 Create Invoice", key="dr_submit_inv", use_container_width=True)
 
         if submit_db or submit_invoice:
+            existing_lower = {n.lower() for n in client_names}
+            for jv in job_vals:
+                name = (jv or "").strip()
+                if name and name.lower() not in existing_lower:
+                    conn.execute(
+                        """INSERT OR REPLACE INTO clients
+                        (client_id, first, last, client_name, comments) VALUES (?,?,?,?,?)""",
+                        (gen_id(), "", "", name, "Auto-added from Daily Run (unscheduled)"),
+                    )
+                    conn.commit()
+                    existing_lower.add(name.lower())
+
             job_id = str(uuid.uuid4())[:8]
             conn.execute(
                 """INSERT OR REPLACE INTO jobs
