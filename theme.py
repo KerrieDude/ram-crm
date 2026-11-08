@@ -36,6 +36,12 @@ def inject_css():
         html, body {{ max-width: 100vw; overflow-x: hidden; }}
         .main, .block-container {{ overflow-x: hidden; max-width: 100vw; }}
         * {{ word-wrap: break-word; overflow-wrap: break-word; }}
+        /* ...but never break up button/pill labels into single letters when their column is narrow */
+        button, div[data-testid="stPills"] * {{
+            word-wrap: normal !important;
+            overflow-wrap: normal !important;
+            white-space: nowrap !important;
+        }}
 
         .ram-topbar {{
             display: flex;
