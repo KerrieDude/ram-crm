@@ -173,6 +173,31 @@ def inject_css():
             }}
         }}
 
+        .st-key-ticket_box {{
+            border: 1px dashed {RAM_PINK};
+            border-radius: 8px;
+            padding: 0.8rem 1rem;
+            background: #1a1a1a;
+        }}
+
+        /* Invoice / Billing sheet */
+        .st-key-invoice_sheet {{
+            border: 1px solid #444;
+            border-radius: 10px;
+            padding: 1.2rem;
+            background: #141414;
+        }}
+        .inv-title {{
+            font-family: 'Bangers', cursive;
+            font-size: 2.5rem;
+            color: {RAM_PINK};
+        }}
+        .inv-company {{
+            text-align: right;
+            color: {RAM_PINK};
+            font-size: 0.85rem;
+        }}
+
         /* Calendar day-picker grid: keep 7 columns tight enough to never overflow a phone */
         .st-key-cal_grid div[data-testid="stHorizontalBlock"] {{
             gap: 4px !important;

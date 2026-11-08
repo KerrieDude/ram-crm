@@ -75,7 +75,7 @@ def photo_input(key_prefix, label="Take a photo"):
     return photo or uploaded
 
 
-PAGES = ["Dashboard", "Clients", "Rolodex", "Date Book", "Daily Run", "Quotes",
+PAGES = ["Dashboard", "Clients", "Rolodex", "Date Book", "Daily Run", "Quotes", "Billing",
          "Labor & Expenses", "Notes & Photos", "Sell With Us", "Settings"]
 st.session_state.setdefault("nav_pills", "Dashboard")
 nav_page = st.pills("Navigate", PAGES, key="nav_pills")
@@ -495,46 +495,86 @@ if nav_page == "Date Book":
 if nav_page == "Daily Run":
     st.subheader("Run Around Daily")
 
-    with st.container(key="daily_run_grid"):
-        with st.form("add_daily_run"):
-            top1, top2, top3 = st.columns(3)
-            with top1:
-                d = st.date_input("Date", key="run_date")
-            with top2:
-                start = st.time_input("Start")
-            with top3:
-                eod = st.time_input("EOD")
+    input_col, ticket_col = st.columns([3, 2], gap="large")
 
-            st.markdown("**Jobs**")
-            job_vals, desc_vals = [], []
-            for i in range(1, 6):
-                jc1, jc2 = st.columns([3, 2])
-                with jc1:
-                    job_vals.append(st.text_input(f"Job {i} — site/client", key=f"dr_job{i}", label_visibility="collapsed" if i > 1 else "visible", placeholder=f"Job {i} — site/client"))
-                with jc2:
-                    desc_vals.append(st.text_input(f"Type {i}", key=f"dr_desc{i}", label_visibility="collapsed" if i > 1 else "visible", placeholder="move / hunni-do / cleanout / spec"))
+    with input_col:
+        with st.container(key="daily_run_grid"):
+            with st.form("add_daily_run"):
+                top1, top2, top3 = st.columns(3)
+                with top1:
+                    d = st.date_input("Date", key="run_date")
+                with top2:
+                    start = st.time_input("Start")
+                with top3:
+                    eod = st.time_input("EOD")
 
-            st.markdown("**Crew**")
-            crew_cols = st.columns(5)
-            crew_vals = []
-            for i, col in enumerate(crew_cols, start=1):
-                with col:
-                    crew_vals.append(st.text_input(f"Crew {i}", key=f"dr_crew{i}", placeholder="initials"))
+                st.markdown("**Jobs**")
+                job_vals, desc_vals = [], []
+                for i in range(1, 6):
+                    jc1, jc2 = st.columns([3, 2])
+                    with jc1:
+                        job_vals.append(st.text_input(f"Job {i} — site/client", key=f"dr_job{i}", label_visibility="collapsed" if i > 1 else "visible", placeholder=f"Job {i} — site/client"))
+                    with jc2:
+                        desc_vals.append(st.text_input(f"Type {i}", key=f"dr_desc{i}", label_visibility="collapsed" if i > 1 else "visible", placeholder="move / hunni-do / cleanout / spec"))
 
-            submitted = st.form_submit_button("💾 Save", use_container_width=True)
+                st.markdown("**Crew**")
+                crew_cols = st.columns(5)
+                crew_vals = []
+                for i, col in enumerate(crew_cols, start=1):
+                    with col:
+                        crew_vals.append(st.text_input(f"Crew {i}", key=f"dr_crew{i}", placeholder="initials"))
 
-        if submitted:
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    submit_db = st.form_submit_button("💾 Submit to DB", use_container_width=True)
+                with bc2:
+                    submit_invoice = st.form_submit_button("🧾 Create Invoice", use_container_width=True)
+
+        if submit_db or submit_invoice:
+            job_id = str(uuid.uuid4())[:8]
             conn.execute(
                 """INSERT OR REPLACE INTO jobs
                 (job_id, date, start, eod, job1, job2, job3, job4, job5,
                  crew1, crew2, crew3, crew4, crew5, desc1, desc2, desc3, desc4, desc5)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (str(uuid.uuid4())[:8], str(d), str(start), str(eod),
-                 *job_vals, *crew_vals, *desc_vals),
+                (job_id, str(d), str(start), str(eod), *job_vals, *crew_vals, *desc_vals),
             )
             conn.commit()
-            st.success("Run logged.")
-            st.rerun()
+            crew_str = ", ".join(c for c in crew_vals if c)
+            st.session_state["last_saved_run"] = {
+                "date": str(d), "start": str(start), "eod": str(eod),
+                "jobs": [(j, t) for j, t in zip(job_vals, desc_vals) if j],
+                "crew": crew_str,
+            }
+            if submit_invoice:
+                st.session_state["invoice_prefill"] = {
+                    "client": job_vals[0] if job_vals and job_vals[0] else "",
+                    "address": "",
+                    "line_items": [
+                        {"activity": "Transport", "logistic": crew_str or "Crew", "amount": 0.0},
+                        {"activity": desc_vals[0] if desc_vals and desc_vals[0] else "Labor", "logistic": "Crew", "amount": 0.0},
+                    ],
+                }
+                st.success("Run logged — opening invoice...")
+                goto("Billing")
+            else:
+                st.success("Run logged.")
+                st.rerun()
+
+    with ticket_col:
+        st.markdown("**Ticket**")
+        last = st.session_state.get("last_saved_run")
+        with st.container(key="ticket_box"):
+            if last:
+                st.caption(f"Last saved · {last['date']} · {last['start']}–{last['eod']}")
+                if last["jobs"]:
+                    for j, t in last["jobs"]:
+                        st.write(f"**{j}** — {t or '—'}")
+                else:
+                    st.caption("No jobs on this run.")
+                st.write(f"Crew: {last['crew'] or '—'}")
+            else:
+                st.caption("Fill in the form and submit — the saved ticket will show here.")
 
     st.divider()
     table_page("Daily Run Log", "jobs", ["job1", "job2", "crew1", "date"])
@@ -816,6 +856,115 @@ if nav_page == "Quotes":
 
         st.divider()
         table_page("Saved Landscaping Quotes", "quotes", ["client_name", "kind", "details"], key="landscaping_quotes")
+
+
+if nav_page == "Billing":
+    st.subheader("Invoice")
+
+    prefill = st.session_state.pop("invoice_prefill", {})
+
+    with st.container(key="invoice_sheet"):
+        hc1, hc2 = st.columns([2, 1])
+        with hc1:
+            st.markdown("<div class='inv-title'>invoice</div>", unsafe_allow_html=True)
+        with hc2:
+            if os.path.exists("assets/ram_mascot.png"):
+                st.image("assets/ram_mascot.png", width=70)
+
+        ic1, ic2 = st.columns(2)
+        with ic1:
+            inv_number = st.text_input("Invoice #", value=prefill.get("invoice_number", gen_id()))
+            inv_date = st.date_input("Date", value=date.today())
+        with ic2:
+            inv_client = st.text_input("Bill to — Client", value=prefill.get("client", ""))
+            inv_address = st.text_input("Address", value=prefill.get("address", ""))
+
+        st.markdown(
+            "<div class='inv-company'>RUN AROUND MELISSA<br>270 Claremont Ave<br>Montclair, NJ 07042"
+            "<br>908-295-4506<br>melissa@runaroundmelissa.com</div>",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("**Activity**")
+        default_lines = prefill.get("line_items") or [
+            {"activity": "Supervision and Administration", "logistic": "Supervisor", "amount": 0.0},
+            {"activity": "Packing", "logistic": "Packers", "amount": 0.0},
+            {"activity": "Transport", "logistic": "Crew", "amount": 0.0},
+            {"activity": "", "logistic": "Truck", "amount": 0.0},
+            {"activity": "", "logistic": "Driver", "amount": 0.0},
+            {"activity": "Unpacking", "logistic": "Packers", "amount": 0.0},
+            {"activity": "Miscellaneous", "logistic": "Materials", "amount": 0.0},
+        ]
+
+        lc1, lc2, lc3 = st.columns([3, 2, 2])
+        with lc1:
+            st.caption("Activity")
+        with lc2:
+            st.caption("Logistic")
+        with lc3:
+            st.caption("Amount (US$)")
+
+        line_items = []
+        for i, line in enumerate(default_lines):
+            r1, r2, r3 = st.columns([3, 2, 2])
+            with r1:
+                act = st.text_input(f"act_{i}", value=line["activity"], label_visibility="collapsed", key=f"inv_act_{i}")
+            with r2:
+                log = st.text_input(f"log_{i}", value=line["logistic"], label_visibility="collapsed", key=f"inv_log_{i}")
+            with r3:
+                amt = st.number_input(f"amt_{i}", value=float(line["amount"]), label_visibility="collapsed",
+                                       key=f"inv_amt_{i}", step=10.0)
+            line_items.append({"activity": act, "logistic": log, "amount": amt})
+
+        subtotal = sum(l["amount"] for l in line_items)
+        tax_rate = st.number_input("Sales tax %", min_value=0.0, value=6.25, step=0.25) / 100
+        tax_amount = subtotal * tax_rate
+        total = subtotal + tax_amount
+
+        st.markdown("**Payment methods:** Zelle · Venmo · PayPal · Credit Card (+3.5% surcharge)")
+
+        tc1, tc2 = st.columns(2)
+        with tc1:
+            st.metric("Subtotal", f"${subtotal:,.2f}")
+        with tc2:
+            st.metric(f"Total amount due (incl. {tax_rate*100:.2f}% tax)", f"${total:,.2f}")
+
+        st.caption("Thank you for your business! · runaroundmelissa.com · @runaroundmelissamontclair "
+                   "· melissa@runaroundmelissa.com · 908-295-4506")
+        st.caption("Terms & conditions: payment is due within 15 days.")
+
+    st.divider()
+    bc1, bc2, bc3 = st.columns(3)
+    with bc1:
+        if st.button("💾 Save to accounting (DB)", use_container_width=True):
+            conn.execute(
+                """INSERT OR REPLACE INTO invoices
+                (invoice_id, invoice_number, invoice_date, client_name, client_address, line_items,
+                 subtotal, tax_rate, tax_amount, total, status, created_at, logged_by)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (gen_id(), inv_number, str(inv_date), inv_client, inv_address,
+                 str(line_items), f"{subtotal:.2f}", f"{tax_rate:.4f}", f"{tax_amount:.2f}",
+                 f"{total:.2f}", "unpaid", datetime.utcnow().isoformat(), user["username"]),
+            )
+            conn.commit()
+            st.success(f"Invoice {inv_number} saved to accounting records.")
+    with bc2:
+        body_lines = "%0D%0A".join(
+            f"{l['activity']} ({l['logistic']}): ${l['amount']:,.2f}" for l in line_items if l["activity"]
+        )
+        mailto = (
+            f"mailto:?subject=Invoice%20{inv_number}%20from%20Run%20Around%20Melissa"
+            f"&body=Hi%20{inv_client.replace(' ', '%20')}%2C%0D%0A%0D%0A{body_lines}"
+            f"%0D%0A%0D%0ATotal%20due%3A%20%24{total:,.2f}%0D%0A%0D%0AThank%20you!"
+        )
+        st.markdown(f"[📧 Email invoice]({mailto})")
+        st.caption("Opens your email client with the invoice pre-filled — no automated sending is wired up yet.")
+    with bc3:
+        st.caption(f"Invoice total: **${total:,.2f}**")
+
+    st.divider()
+    with st.expander("All invoices (accounting)"):
+        table_page("Invoices", "invoices", ["invoice_number", "client_name", "status"], key="invoices")
 
 
 if nav_page == "Labor & Expenses":

@@ -137,6 +137,22 @@ CREATE TABLE IF NOT EXISTS client_notes (
     photo_base64 TEXT
 );
 
+CREATE TABLE IF NOT EXISTS invoices (
+    invoice_id TEXT PRIMARY KEY,
+    invoice_number TEXT,
+    invoice_date TEXT,
+    client_name TEXT,
+    client_address TEXT,
+    line_items TEXT,
+    subtotal TEXT,
+    tax_rate TEXT,
+    tax_amount TEXT,
+    total TEXT,
+    status TEXT,
+    created_at TEXT,
+    logged_by TEXT
+);
+
 CREATE TABLE IF NOT EXISTS resale_items (
     item_id TEXT PRIMARY KEY,
     client_name TEXT,
