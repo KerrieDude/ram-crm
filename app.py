@@ -12,6 +12,7 @@ from theme import inject_css, topbar
 from qr import directions_qr_png_bytes, directions_url
 from inventory import FURNITURE, WEIGHT_FACTOR_LBS_PER_CUFT
 from packing_calc import lookup as packing_lookup, BEDROOM_OPTIONS, PERSON_OPTIONS, TIERS
+from labor_ref import CREW_HOURS, HOME_SIZES, CREW_SIZES, RENT_A_CRATE, RENT_A_CRATE_UNIT, REDI_BOX, REDI_BOX_UNIT, TRUCKS
 
 st.set_page_config(
     page_title="RAM CRM",
@@ -38,16 +39,17 @@ def get_rates(conn):
 
 
 (tab_dashboard, tab_calendar, tab_clients, tab_rolodex, tab_dates, tab_jobs, tab_move_quote,
- tab_hunni_quote, tab_painting, tab_carpentry, tab_landscaping, tab_settings) = st.tabs(
+ tab_hunni_quote, tab_painting, tab_carpentry, tab_landscaping, tab_labor, tab_settings) = st.tabs(
     ["Dashboard", "Calendar", "Clients", "Rolodex", "Date Book", "Daily Run",
      "Move Quote", "Hunni-Do Quote", "Painting Quote", "Carpentry Quote",
-     "Landscaping Quote", "Settings"]
+     "Landscaping Quote", "Labor & Expenses", "Settings"]
 )
 
 
 def table_page(title, table, search_cols, key=None):
     st.subheader(title)
-    df = pd.read_sql_query(f"SELECT * FROM {table}", conn.raw)
+    rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+    df = pd.DataFrame([dict(r) for r in rows])
     q = st.text_input("Search", key=f"search_{key or table}")
     if q:
         mask = False
@@ -489,6 +491,103 @@ with tab_landscaping:
 
     st.divider()
     table_page("Saved Landscaping Quotes", "quotes", ["client_name", "kind", "details"], key="landscaping_quotes")
+
+with tab_labor:
+    st.subheader("Labor & Other Expenses")
+
+    st.markdown("**Log an expense**")
+    with st.form("add_expense"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            ex_date = st.date_input("Date", key="ex_date")
+            ex_category = st.selectbox(
+                "Category", ["Fuel", "Dump/Disposal", "Equipment Rental", "Supplies/Materials",
+                             "Truck/Vehicle", "Parking/Tolls", "Other"]
+            )
+        with c2:
+            ex_job = st.text_input("Job / client reference")
+            ex_amount = st.number_input("Amount ($)", min_value=0.0, value=0.0, step=1.0)
+        with c3:
+            ex_notes = st.text_area("Notes", height=100)
+        if st.form_submit_button("Log expense"):
+            conn.execute(
+                """INSERT OR REPLACE INTO expenses
+                (expense_id, date, job_ref, category, amount, notes, logged_by)
+                VALUES (?,?,?,?,?,?,?)""",
+                (str(uuid.uuid4())[:8], str(ex_date), ex_job, ex_category,
+                 f"{ex_amount:.2f}", ex_notes, user["username"]),
+            )
+            conn.commit()
+            st.success("Expense logged.")
+            st.rerun()
+
+    ex_rows = conn.execute("SELECT * FROM expenses ORDER BY date DESC").fetchall()
+    df_ex = pd.DataFrame([dict(r) for r in ex_rows])
+    if not df_ex.empty:
+        df_ex["amount"] = df_ex["amount"].astype(float)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total logged", f"${df_ex['amount'].sum():,.2f}")
+        this_month = df_ex[pd.to_datetime(df_ex["date"]).dt.strftime("%Y-%m") == date.today().strftime("%Y-%m")]
+        c2.metric("This month", f"${this_month['amount'].sum():,.2f}")
+        c3.metric("Entries", len(df_ex))
+        st.dataframe(df_ex, use_container_width=True, hide_index=True)
+        st.markdown("**By category**")
+        st.dataframe(
+            df_ex.groupby("category")["amount"].sum().sort_values(ascending=False).reset_index(),
+            use_container_width=True, hide_index=True,
+        )
+    else:
+        st.caption("No expenses logged yet.")
+
+    st.divider()
+    st.markdown("**Crew / hours reference by home size**")
+    st.caption("From RAM's own settings sheet — how many hours a given crew size typically needs.")
+    ref_c1, ref_c2 = st.columns(2)
+    with ref_c1:
+        ref_home = st.selectbox("Home size", HOME_SIZES, key="ref_home")
+    with ref_c2:
+        ref_crew = st.selectbox("Crew size", CREW_SIZES, key="ref_crew")
+    hrs = next((h for hs, sqft, c, h in CREW_HOURS if hs == ref_home and c == ref_crew), None)
+    if hrs:
+        st.metric(f"Typical hours — {ref_home}, crew of {ref_crew}", hrs)
+    else:
+        st.caption("No reference data for that combination.")
+    st.dataframe(
+        pd.DataFrame(CREW_HOURS, columns=["Home Size", "Sq Ft", "Crew", "Hours"]),
+        use_container_width=True, hide_index=True,
+    )
+
+    st.divider()
+    st.markdown("**Portable storage pricing reference**")
+    pc1, pc2 = st.columns(2)
+    with pc1:
+        st.markdown(f"*Rent-A-Crate* — {RENT_A_CRATE_UNIT}")
+        st.dataframe(
+            pd.DataFrame(RENT_A_CRATE, columns=["Home Size", "Boxes", "Dollies"]),
+            use_container_width=True, hide_index=True,
+        )
+    with pc2:
+        st.markdown(f"*Redi-Box* — {REDI_BOX_UNIT}")
+        st.dataframe(
+            pd.DataFrame(REDI_BOX, columns=["Home Size", "Pricing", "Boxes"]),
+            use_container_width=True, hide_index=True,
+        )
+
+    st.divider()
+    st.markdown("**Truck size & fuel-cost estimator**")
+    tc1, tc2 = st.columns(2)
+    with tc1:
+        truck_pick = st.selectbox("Truck", [t["name"] for t in TRUCKS])
+        trip_miles = st.number_input("Trip miles (round trip)", min_value=0.0, value=20.0, key="fuel_miles")
+    with tc2:
+        gas_price = st.number_input("Current gas price ($/gal)", min_value=0.0, value=3.50, step=0.05)
+    truck_info = next(t for t in TRUCKS if t["name"] == truck_pick)
+    gallons_needed = trip_miles / truck_info["mpg"]
+    fuel_cost = gallons_needed * gas_price
+    st.write(f"**{truck_info['name']}** — best for *{truck_info['home_size']}*, "
+             f"{truck_info['mpg']} mpg, {truck_info['tank_gal']} gal tank "
+             f"(~{truck_info['range_mi']} mi range)")
+    st.metric("Estimated fuel cost for this trip", f"${fuel_cost:,.2f}", f"{gallons_needed:.1f} gal")
 
 with tab_settings:
     st.subheader("My account")

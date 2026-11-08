@@ -116,6 +116,16 @@ CREATE TABLE IF NOT EXISTS quotes (
     details TEXT,
     total TEXT
 );
+
+CREATE TABLE IF NOT EXISTS expenses (
+    expense_id TEXT PRIMARY KEY,
+    date TEXT,
+    job_ref TEXT,
+    category TEXT,
+    amount TEXT,
+    notes TEXT,
+    logged_by TEXT
+);
 """
 
 
