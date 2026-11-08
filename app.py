@@ -555,11 +555,26 @@ if nav_page == "Daily Run":
                                               placeholder="initials", label_visibility="collapsed")
                     crew_vals.append(pick)
 
-            bc1, bc2 = st.columns(2)
+            bc1, bc2, bc3 = st.columns([2, 2, 1])
             with bc1:
                 submit_db = st.button("💾 Submit to DB", key="dr_submit_db", use_container_width=True)
             with bc2:
                 submit_invoice = st.button("🧾 Create Invoice", key="dr_submit_inv", use_container_width=True)
+            with bc3:
+                clear_run = st.button("🗑️ Clear", key="dr_clear", use_container_width=True)
+
+        if clear_run:
+            for i in range(1, 6):
+                st.session_state.pop(f"dr_job{i}_pick", None)
+                st.session_state.pop(f"dr_job{i}_new", None)
+                st.session_state.pop(f"dr_desc{i}", None)
+            for i in range(1, 6):
+                st.session_state.pop(f"dr_crew{i}_pick", None)
+                st.session_state.pop(f"dr_crew{i}_new", None)
+            st.session_state.pop("dr_start", None)
+            st.session_state.pop("dr_eod", None)
+            st.session_state.pop("last_saved_run", None)
+            st.rerun()
 
         if submit_db or submit_invoice:
             existing_lower = {n.lower() for n in client_names}
