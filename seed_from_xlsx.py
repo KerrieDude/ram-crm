@@ -69,7 +69,7 @@ def main():
         "mile_rate_penske": 0.19, "mile_rate_uhaul": 0.59,
         "tax": 0.0625, "free_miles_uhaul": 75,
         "cuft_per_mover_hour": 60, "base_access_hours": 1,
-        "painting_rate_per_sqft": 2.5, "carpentry_hourly_rate": 65,
+        "painting_rate_per_sqft": 2.5, "handyman_hourly_rate": 65,
         "landscaping_hourly_rate": 55,
     }
     for k, v in rate_rows.items():

@@ -78,7 +78,7 @@ def photo_input(key_prefix, label="Take a photo"):
 PAGES = ["Dashboard", "Clients", "Rolodex", "Date Book", "Daily Run", "Quotes", "Billing",
          "Client Manager", "Labor & Expenses", "Notes & Photos", "Sell With Us", "Settings"]
 
-JOB_TYPES = ["", "Move", "Hunni-Do", "Cleanout", "Spec", "Painting", "Carpentry", "Landscaping", "Other"]
+JOB_TYPES = ["", "Move", "Hunni-Do", "Cleanout", "Spec", "Painting", "Lite Handyman", "Landscaping", "Other"]
 NEW_CLIENT_SENTINEL = "+ New client (unscheduled)..."
 st.session_state.setdefault("nav_pills", "Dashboard")
 nav_page = st.pills("Navigate", PAGES, key="nav_pills")
@@ -641,7 +641,7 @@ if nav_page == "Daily Run":
 
 if nav_page == "Quotes":
     st.subheader("Quotes")
-    quote_pick = st.pills("Quote type", ["Move", "Hunni-Do", "Painting", "Carpentry", "Landscaping"],
+    quote_pick = st.pills("Quote type", ["Move", "Hunni-Do", "Painting", "Lite Handyman", "Landscaping"],
                           default="Move", key="quote_pick")
     st.divider()
 
@@ -932,39 +932,74 @@ if nav_page == "Quotes":
         table_page("Saved Painting Quotes", "quotes", ["client_name", "kind", "details"], key="painting_quotes")
 
 
-    if quote_pick == "Carpentry":
-        st.subheader("Carpentry / Handyman Quote — Auto Estimate")
+    if quote_pick == "Lite Handyman":
+        st.subheader("Lite Handyman — Quote or Vetted Network Referral")
         rates = get_rates(conn)
-        with st.form("carpentry_quote"):
-            c1, c2 = st.columns(2)
-            with c1:
-                cq_client = st.text_input("Client name", key="cq_client")
-                hours = st.number_input("Estimated hours", min_value=0.5, value=3.0, step=0.5, key="cq_hours")
-            with c2:
-                materials_cost = st.number_input("Materials cost ($)", min_value=0.0, value=0.0)
-                trip_fee = st.number_input("Trip / travel fee ($)", min_value=0.0, value=0.0)
-            job_desc = st.text_input("Job description (e.g. shelving, trim, door repair)")
-            submitted = st.form_submit_button("Calculate quote")
+        st.caption(
+            "RAM crew handles small, quick jobs directly (shelving, minor repairs, fixture swaps, touch-ups). "
+            "Anything bigger than lite handyman scope — real carpentry, structural, licensed-trade work — gets "
+            "referred out to RAM's vetted network of outside pros instead of taken on in-house."
+        )
 
-        if submitted:
-            labor = hours * rates["carpentry_hourly_rate"]
-            subtotal = labor + materials_cost + trip_fee
-            total = subtotal * (1 + rates["tax"])
+        hq_mode = st.radio(
+            "How is this job being handled?",
+            ["RAM crew (lite handyman)", "Refer to vetted network partner"],
+            key="hq_mode", horizontal=True,
+        )
 
-            st.metric("Estimated total", f"${total:,.2f}")
-            st.write(f"Labor: ${labor:,.2f} · Materials: ${materials_cost:,.2f} · "
-                     f"Trip fee: ${trip_fee:,.2f} · Tax: {rates['tax']*100:.2f}%")
+        if hq_mode == "RAM crew (lite handyman)":
+            with st.form("handyman_quote"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    hq_client = st.text_input("Client name", key="hq_client")
+                    hours = st.number_input("Estimated hours", min_value=0.5, value=2.0, step=0.5, key="hq_hours")
+                with c2:
+                    materials_cost = st.number_input("Materials cost ($)", min_value=0.0, value=0.0)
+                    trip_fee = st.number_input("Trip / travel fee ($)", min_value=0.0, value=0.0)
+                job_desc = st.text_input("Job description (e.g. shelving, fixture swap, minor repair)")
+                submitted = st.form_submit_button("Calculate quote")
 
-            conn.execute(
-                "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
-                (str(uuid.uuid4())[:8], "carpentry", cq_client, datetime.utcnow().isoformat(),
-                 f"{job_desc}, {hours}h, materials ${materials_cost}", f"{total:.2f}"),
-            )
-            conn.commit()
-            st.success("Quote saved.")
+            if submitted:
+                labor = hours * rates["handyman_hourly_rate"]
+                subtotal = labor + materials_cost + trip_fee
+                total = subtotal * (1 + rates["tax"])
+
+                st.metric("Estimated total", f"${total:,.2f}")
+                st.write(f"Labor: ${labor:,.2f} · Materials: ${materials_cost:,.2f} · "
+                         f"Trip fee: ${trip_fee:,.2f} · Tax: {rates['tax']*100:.2f}%")
+
+                conn.execute(
+                    "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
+                    (str(uuid.uuid4())[:8], "handyman", hq_client, datetime.utcnow().isoformat(),
+                     f"{job_desc}, {hours}h, materials ${materials_cost}", f"{total:.2f}"),
+                )
+                conn.commit()
+                st.success("Quote saved.")
+        else:
+            st.markdown("**Vetted network referral**")
+            st.caption("Log the handoff so there's a record of who the client was referred to and why.")
+            with st.form("handyman_referral"):
+                r1, r2 = st.columns(2)
+                with r1:
+                    ref_client = st.text_input("Client name", key="ref_client")
+                    ref_partner = st.text_input("Referred to (vetted partner name)", key="ref_partner")
+                with r2:
+                    ref_partner_contact = st.text_input("Partner contact (phone/email)", key="ref_partner_contact")
+                    ref_fee = st.number_input("Referral fee, if any ($)", min_value=0.0, value=0.0, key="ref_fee")
+                ref_scope = st.text_area("Job scope (why it's outside lite handyman work)", height=80)
+                ref_submitted = st.form_submit_button("Log referral")
+
+            if ref_submitted:
+                conn.execute(
+                    "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
+                    (str(uuid.uuid4())[:8], "handyman_referral", ref_client, datetime.utcnow().isoformat(),
+                     f"Referred to {ref_partner} ({ref_partner_contact}): {ref_scope}", f"{ref_fee:.2f}"),
+                )
+                conn.commit()
+                st.success(f"Referral to {ref_partner} logged.")
 
         st.divider()
-        table_page("Saved Carpentry Quotes", "quotes", ["client_name", "kind", "details"], key="carpentry_quotes")
+        table_page("Saved Handyman Quotes & Referrals", "quotes", ["client_name", "kind", "details"], key="handyman_quotes")
 
 
     if quote_pick == "Landscaping":

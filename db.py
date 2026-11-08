@@ -176,6 +176,8 @@ MIGRATIONS = [
     "ALTER TABLE client_notes ADD COLUMN photo_base64 TEXT",
     "ALTER TABLE invoices ADD COLUMN payment_method TEXT",
     "ALTER TABLE invoices ADD COLUMN paid_date TEXT",
+    "UPDATE rates SET rate_key = 'handyman_hourly_rate' WHERE rate_key = 'carpentry_hourly_rate'",
+    "UPDATE quotes SET kind = 'handyman' WHERE kind = 'carpentry'",
 ]
 
 
