@@ -555,7 +555,7 @@ if nav_page == "Daily Run":
                                               placeholder="initials", label_visibility="collapsed")
                     crew_vals.append(pick)
 
-            bc1, bc2, bc3 = st.columns([2, 2, 1])
+            bc1, bc2, bc3 = st.columns(3)
             with bc1:
                 submit_db = st.button("💾 Submit to DB", key="dr_submit_db", use_container_width=True)
             with bc2:
