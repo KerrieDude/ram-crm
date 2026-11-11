@@ -115,6 +115,9 @@ if nav_page == "Dashboard":
     upcoming_count = conn.execute(
         "SELECT COUNT(*) AS c FROM save_dates WHERE date > ?", (str(today),)
     ).fetchone()["c"]
+    open_vintage_runs = conn.execute(
+        "SELECT * FROM vintage_runs WHERE status IN ('Requested','In progress') ORDER BY requested_date"
+    ).fetchall()
 
     with st.container(key="dash_layout"):
         dash_left, dash_right = st.columns([1, 1], gap="large")
@@ -122,10 +125,12 @@ if nav_page == "Dashboard":
     with dash_left:
         st.subheader(f"Today — {today.strftime('%A, %B %d, %Y')}")
 
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Jobs today", len(today_jobs))
         c2.metric("Bookings today", len(today_dates))
         c3.metric("Bookings ahead", upcoming_count)
+        if c4.button(f"🧓 Vintage Runs open: {len(open_vintage_runs)}", use_container_width=True):
+            goto("Vintage Run")
 
         st.markdown("**Today's run**")
         if today_jobs:
@@ -140,6 +145,18 @@ if nav_page == "Dashboard":
             st.dataframe(df_today, use_container_width=True, hide_index=True)
         else:
             st.caption("No save-the-date bookings for today.")
+
+        st.markdown("**Open Vintage Runs (crew to-do)**")
+        if open_vintage_runs:
+            df_vr = pd.DataFrame([dict(r) for r in open_vintage_runs])[
+                ["client_name", "run_type", "store_or_pharmacy", "pickup_time", "status"]
+            ]
+            df_vr.columns = ["Client", "Run Type", "Store/Pharmacy", "Pickup Time", "Status"]
+            st.dataframe(df_vr, use_container_width=True, hide_index=True)
+            if st.button("Go to Vintage Run to execute", key="dash_vr_goto"):
+                goto("Vintage Run")
+        else:
+            st.caption("No open Vintage Runs right now.")
 
         st.divider()
         st.markdown("**Get directions QR for a job address**")
@@ -1197,6 +1214,47 @@ if nav_page == "Quotes":
 if nav_page == "Vintage Run":
     st.subheader("Vintage Run")
     st.caption("Errand runs for older / vulnerable clients -- prescriptions, groceries, food pickup, etc.")
+
+    open_runs = conn.execute(
+        "SELECT * FROM vintage_runs WHERE status IN ('Requested','In progress') ORDER BY requested_date"
+    ).fetchall()
+    st.markdown(f"### 📋 Open Runs — To Do ({len(open_runs)})")
+    if not open_runs:
+        st.caption("Nothing open right now — crew is all caught up.")
+    for r in open_runs:
+        with st.container(key=f"vr_card_{r['run_id']}", border=True):
+            top1, top2 = st.columns([3, 1])
+            with top1:
+                st.markdown(f"**{r['client_name']}** — {r['run_type']} · {r['store_or_pharmacy'] or '—'}")
+                st.caption(
+                    f"Requested {r['requested_date']} · Pickup {r['pickup_time'] or '—'} · "
+                    f"Drop-off {r['delivery_time'] or '—'} · Phone {r['client_phone'] or '—'}"
+                )
+                if r["item_list"]:
+                    st.write(r["item_list"])
+                if r["notes"]:
+                    st.caption(f"Note: {r['notes']}")
+            with top2:
+                st.markdown(f"**{r['status']}**")
+            b1, b2, b3 = st.columns(3)
+            with b1:
+                if r["status"] == "Requested" and st.button("▶ Start", key=f"vr_start_{r['run_id']}", use_container_width=True):
+                    conn.execute("UPDATE vintage_runs SET status='In progress' WHERE run_id=?", (r["run_id"],))
+                    conn.commit()
+                    st.rerun()
+            with b2:
+                if st.button("✅ Delivered", key=f"vr_done_{r['run_id']}", use_container_width=True):
+                    conn.execute("UPDATE vintage_runs SET status='Delivered' WHERE run_id=?", (r["run_id"],))
+                    conn.commit()
+                    st.rerun()
+            with b3:
+                if st.button("✖ Cancel", key=f"vr_cancel_{r['run_id']}", use_container_width=True):
+                    conn.execute("UPDATE vintage_runs SET status='Cancelled' WHERE run_id=?", (r["run_id"],))
+                    conn.commit()
+                    st.rerun()
+
+    st.divider()
+    st.markdown("### ➕ Log a new run")
 
     vr_client_rows = conn.execute("SELECT client_id, client_name, cell FROM clients ORDER BY client_name").fetchall()
     vr_client_names = [r["client_name"] for r in vr_client_rows if r["client_name"]]
