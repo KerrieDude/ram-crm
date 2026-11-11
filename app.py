@@ -78,7 +78,7 @@ def photo_input(key_prefix, label="Take a photo"):
 PAGES = ["Dashboard", "Clients", "Rolodex", "Date Book", "Daily Run", "Quotes", "Billing",
          "Client Manager", "Labor & Expenses", "Notes & Photos", "Sell With Us", "Settings"]
 
-JOB_TYPES = ["", "Move", "Hunni-Do", "Cleanout", "Spec", "Painting", "Lite Handyman", "Landscaping", "Other"]
+JOB_TYPES = ["", "Move", "Hunni-Do", "Cleanout", "Spec", "Painting", "Lite Handyman", "Landscaping", "Delivery", "Other"]
 NEW_CLIENT_SENTINEL = "+ New client (unscheduled)..."
 st.session_state.setdefault("nav_pills", "Dashboard")
 nav_page = st.pills("Navigate", PAGES, key="nav_pills")
@@ -641,7 +641,7 @@ if nav_page == "Daily Run":
 
 if nav_page == "Quotes":
     st.subheader("Quotes")
-    quote_pick = st.pills("Quote type", ["Move", "Hunni-Do", "Painting", "Lite Handyman", "Landscaping"],
+    quote_pick = st.pills("Quote type", ["Move", "Hunni-Do", "Painting", "Lite Handyman", "Landscaping", "Delivery"],
                           default="Move", key="quote_pick")
     st.divider()
 
@@ -1150,6 +1150,48 @@ if nav_page == "Quotes":
 
         st.divider()
         table_page("Saved Landscaping Quotes", "quotes", ["client_name", "kind", "details"], key="landscaping_quotes")
+
+
+    if quote_pick == "Delivery":
+        st.subheader("Delivery Quote — Auto Estimate")
+        st.caption("Client needs something picked up and dropped off — furniture, a store purchase, a donation run, etc.")
+        rates = get_rates(conn)
+        with st.form("delivery_quote"):
+            c1, c2 = st.columns(2)
+            with c1:
+                dq_client = st.text_input("Client name", key="dq_client")
+                dq_item = st.text_input("Item(s) being delivered", key="dq_item")
+                dq_pickup = st.text_input("Pickup address", key="dq_pickup")
+                dq_dropoff = st.text_input("Drop-off address", key="dq_dropoff")
+            with c2:
+                crew_size = st.number_input("Crew size", min_value=1, value=1, key="dq_crew")
+                hours = st.number_input("Estimated hours", min_value=0.5, value=1.0, step=0.5, key="dq_hours")
+                miles = st.number_input("Round-trip miles", min_value=0.0, value=10.0, key="dq_miles")
+                help_needed = st.checkbox("Needs 2-person carry / stairs", key="dq_help")
+            submitted = st.form_submit_button("Calculate quote")
+
+        if submitted:
+            crew_cost = rates["crew_rate"] * crew_size * hours
+            mileage_cost = miles * rates["mile_rate_penske"]
+            help_fee = 25.0 if help_needed else 0.0
+            subtotal = crew_cost + mileage_cost + help_fee + rates["fuel_surcharge"]
+            total = subtotal * (1 + rates["tax"])
+
+            st.metric("Estimated total", f"${total:,.2f}")
+            st.write(f"Crew: ${crew_cost:,.2f} · Mileage: ${mileage_cost:,.2f} · "
+                     f"Carry/stairs fee: ${help_fee:,.2f} · Tax: {rates['tax']*100:.2f}%")
+
+            conn.execute(
+                "INSERT OR REPLACE INTO quotes (quote_id, kind, client_name, created_at, details, total) VALUES (?,?,?,?,?,?)",
+                (str(uuid.uuid4())[:8], "delivery", dq_client, datetime.utcnow().isoformat(),
+                 f"{dq_item} | {dq_pickup} -> {dq_dropoff}, crew {crew_size}, {hours}h, {miles}mi"
+                 f"{', carry/stairs' if help_needed else ''}", f"{total:.2f}"),
+            )
+            conn.commit()
+            st.success("Quote saved.")
+
+        st.divider()
+        table_page("Saved Delivery Quotes", "quotes", ["client_name", "kind", "details"], key="delivery_quotes")
 
 
 if nav_page == "Billing":
