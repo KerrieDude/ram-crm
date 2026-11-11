@@ -75,7 +75,7 @@ def photo_input(key_prefix, label="Take a photo"):
     return photo or uploaded
 
 
-PAGES = ["Dashboard", "Clients", "Rolodex", "Date Book", "Daily Run", "Quotes", "Billing",
+PAGES = ["Dashboard", "Clients", "Rolodex", "Date Book", "Daily Run", "Quotes", "Vintage Run", "Billing",
          "Client Manager", "Labor & Expenses", "Notes & Photos", "Sell With Us", "Settings"]
 
 JOB_TYPES = ["", "Move", "Hunni-Do", "Cleanout", "Spec", "Painting", "Lite Handyman", "Landscaping", "Delivery", "Other"]
@@ -1192,6 +1192,70 @@ if nav_page == "Quotes":
 
         st.divider()
         table_page("Saved Delivery Quotes", "quotes", ["client_name", "kind", "details"], key="delivery_quotes")
+
+
+if nav_page == "Vintage Run":
+    st.subheader("Vintage Run")
+    st.caption("Errand runs for older / vulnerable clients -- prescriptions, groceries, food pickup, etc.")
+
+    vr_client_rows = conn.execute("SELECT client_id, client_name, cell FROM clients ORDER BY client_name").fetchall()
+    vr_client_names = [r["client_name"] for r in vr_client_rows if r["client_name"]]
+    vr_phone_by_name = {r["client_name"]: r["cell"] for r in vr_client_rows if r["client_name"]}
+
+    vr_pick = st.selectbox(
+        "Client", ["", *vr_client_names, NEW_CLIENT_SENTINEL], key="vr_client_pick",
+    )
+    if vr_pick == NEW_CLIENT_SENTINEL:
+        vr_client = st.text_input("New client name", key="vr_new_client")
+        vr_phone_default = ""
+    else:
+        vr_client = vr_pick
+        vr_phone_default = vr_phone_by_name.get(vr_pick, "") or ""
+
+    with st.form("vintage_run"):
+        c1, c2 = st.columns(2)
+        with c1:
+            vr_phone = st.text_input("Phone", value=vr_phone_default, key="vr_phone")
+            vr_type = st.selectbox("Run type", ["Prescription pickup", "Grocery run", "Food pickup/delivery", "Other errand"], key="vr_type")
+            vr_store = st.text_input("Pharmacy / store / restaurant", key="vr_store")
+            vr_date = st.date_input("Requested date", value=date.today(), key="vr_date")
+        with c2:
+            vr_pickup_time = st.text_input("Pickup time", placeholder="e.g. 10:00 AM", key="vr_pickup_time")
+            vr_delivery_time = st.text_input("Delivery time", placeholder="e.g. 11:30 AM", key="vr_delivery_time")
+            vr_fee = st.number_input("Fee / tip ($)", min_value=0.0, value=0.0, step=1.0, key="vr_fee")
+            vr_run_by = st.text_input("Run by (staff)", key="vr_run_by")
+        vr_items = st.text_area("Item list / prescription details", key="vr_items", height=100)
+        vr_notes = st.text_area("Notes", key="vr_notes", height=68)
+        vr_status = st.selectbox("Status", ["Requested", "In progress", "Delivered", "Cancelled"], key="vr_status")
+        submitted = st.form_submit_button("Save run")
+
+    if submitted:
+        if not vr_client:
+            st.warning("Pick or enter a client name first.")
+        else:
+            if vr_pick == NEW_CLIENT_SENTINEL and vr_client.lower() not in {n.lower() for n in vr_client_names}:
+                conn.execute(
+                    "INSERT OR REPLACE INTO clients (client_id, client_name, cell) VALUES (?,?,?)",
+                    (gen_id(), vr_client, vr_phone),
+                )
+            conn.execute(
+                """INSERT OR REPLACE INTO vintage_runs
+                (run_id, client_name, client_phone, run_type, store_or_pharmacy, item_list,
+                 requested_date, pickup_time, delivery_time, status, fee, run_by, notes, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (gen_id(), vr_client, vr_phone, vr_type, vr_store, vr_items,
+                 str(vr_date), vr_pickup_time, vr_delivery_time, vr_status,
+                 f"{vr_fee:.2f}", vr_run_by, vr_notes, datetime.utcnow().isoformat()),
+            )
+            conn.commit()
+            st.success("Run saved.")
+
+    st.divider()
+    table_page(
+        "Logged Vintage Runs", "vintage_runs",
+        ["client_name", "run_type", "store_or_pharmacy", "status", "requested_date"],
+        key="vintage_runs",
+    )
 
 
 if nav_page == "Billing":

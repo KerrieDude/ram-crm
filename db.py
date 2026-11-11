@@ -158,6 +158,23 @@ CREATE TABLE IF NOT EXISTS app_settings (
     setting_value TEXT
 );
 
+CREATE TABLE IF NOT EXISTS vintage_runs (
+    run_id TEXT PRIMARY KEY,
+    client_name TEXT,
+    client_phone TEXT,
+    run_type TEXT,
+    store_or_pharmacy TEXT,
+    item_list TEXT,
+    requested_date TEXT,
+    pickup_time TEXT,
+    delivery_time TEXT,
+    status TEXT,
+    fee TEXT,
+    run_by TEXT,
+    notes TEXT,
+    created_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS resale_items (
     item_id TEXT PRIMARY KEY,
     client_name TEXT,
